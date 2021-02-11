@@ -1,7 +1,11 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from time import time
 from tqdm import tqdm
+
+import requests # Performing HTTPS requests
+import zipfile # Manipulate zips
 
 # Usefull functions
 from scipy.special import ive # Bessel function
@@ -12,10 +16,9 @@ from scipy.linalg import expm
 # Sparse matrix algebra
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import eigsh # Eigenvalues computation
-from scipy.sparse.csgraph import laplacian
+from scipy.sparse.csgraph import laplacian # Laplacian from sparse matrix
+from scipy.sparse.csgraph import connected_components
 from scipy.sparse.linalg import expm_multiply as sparse_expm_multiply
-
-import utils
 
 # Logging. errors/warnings handling
 from pdb import set_trace as bp
@@ -62,6 +65,152 @@ def plot_fancy_error_bar(x, y, ax=None, type="median_quartiles", label=None, **k
         plot_ = ax.errorbar(x, y_center, (y_center - y_down, y_up - y_center), label=label, **kwargs)
         ax.fill_between(x, y_down, y_up, alpha=.3, **kwargs)
     return plot_
+
+def get_firstmm_db_dataset():
+    logger.debug("### get_firstmm_db_dataset() ###")
+
+    if os.path.exists("data/FIRSTMM_DB"):
+        logger.debug("Dataset already downloaded")
+        return None
+
+    logger.debug("Downloading FIRSTMM_DB dataset.")
+    r = requests.get("https://www.chrsmrrs.com/graphkerneldatasets/FIRSTMM_DB.zip")
+
+    logger.debug("Writing FIRSTMM_DB dataset (as zip).")
+    with open("data/FIRSTMM_DB.zip", "wb") as f:
+        f.write(r.content)
+
+    logger.debug("Unziping FIRSTMM_DB dataset.")
+    with zipfile.ZipFile("data/FIRSTMM_DB.zip", "r") as zip_ref:
+        zip_ref.extractall("data/")
+
+def parse_dortmund_format(path, dataset_name, clean_data=True):
+    """ Parser for attributed graphs from the Dortmund gaph collection (see:
+        https://chrsmrrs.github.io/datasets/docs/datasets/)."""
+    logger.debug("### parse_dortmund_format() ###")
+
+    logger.debug("Reading node->graph mapping")
+    with open(path + dataset_name + "_graph_indicator.txt") as f:
+        graph_indicator = []
+        current_graph_num = 0
+        for line in f:
+            graph_num = int(line) - 1
+            graph_indicator.append(graph_num)
+
+    # Auxiliary quantity: total number of graphs
+    n_graphs = np.amax(graph_indicator) + 1
+
+    # Auxiliary quantity: size of each graph (in nodes)
+    graph_sizes = np.zeros( (n_graphs,), dtype=np.int )
+    graph_min_node = np.ones( (n_graphs,), dtype=np.int ) * (len(graph_indicator) + 1)
+    for i,k in enumerate(graph_indicator):
+        graph_sizes[k] += 1
+        graph_min_node[k] = min(i, graph_min_node[k])
+
+    # Auxiliary quantity: are all the graphs the same size?
+    # If yes, building the data require some tweaking (because of automatic
+    # NumPy array formatting).
+    same_size = (len(np.unique(graph_sizes))==1)
+
+    logger.debug("Reading graphs structures")
+    M = []
+    current_graph_num = 0
+    with open(path + dataset_name + "_A.txt") as f:
+        rows = []
+        cols = []
+        for line in f:
+            i,j = line.split(",")
+            i,j = int(i)-1,int(j)-1
+            if current_graph_num != graph_indicator[i]:
+                M.append( csr_matrix(
+                    (np.ones(len(rows)),(rows,cols)),
+                    shape=(graph_sizes[current_graph_num],graph_sizes[current_graph_num])
+                ) )
+                current_graph_num += 1
+                rows = []
+                cols = []
+            rows.append(i - graph_min_node[current_graph_num])
+            cols.append(j - graph_min_node[current_graph_num])
+        else:
+            M.append( csr_matrix(
+                (np.ones(len(rows)),(rows,cols)),
+                shape=(graph_sizes[current_graph_num],graph_sizes[current_graph_num])
+            ) )
+    M = np.array(M)
+
+    if clean_data:
+        to_delete = []
+        for i in range(n_graphs):
+            # Removed graph with more than 1 connected component
+            if connected_components(M[i])[0] > 1:
+                logger.debug(f"Graph {i} is not connected.")
+                to_delete.append(i)
+        M = np.delete(M,to_delete, axis=0)
+
+    return_dict = {"graph_structures": M}
+
+    logger.debug("Reading graph labels")
+    with open(path + dataset_name + "_graph_labels.txt") as f:
+        L = []
+        for line in f:
+            L.append(int(line))
+    L = np.array(L)
+    # Normalise the labels: 0, 1, 2, ...
+    _, L = np.unique(L, return_inverse=True)
+    # Clean data?
+    if clean_data:
+        L = np.delete(L,to_delete, axis=0)
+    # Update return dictionnary
+    return_dict["graph_labels"] = L
+
+    # Read all other files the same way
+    for file in os.scandir(path):
+        # Is the file already read?
+        if not file.name.startswith(dataset_name+"_node"):
+        # if (file.name.endswith("_A.txt")
+        #         or file.name.endswith("_graph_labels.txt")
+        #         or file.name.endswith("_graph_indicator.txt")
+        #         or file.name=="README.txt"):
+            continue
+        logger.debug(f"Reading {file.name}.")
+        with open(file.path) as f:
+            X = []
+            for i,line in enumerate(f):
+                x = line.split(',')
+                x = np.array(x, dtype=np.float)
+                try:
+                    X[graph_indicator[i]].append(x)
+                except:
+                    X.append([x])
+            if same_size:
+                X = np.array(X, dtype=np.float).reshape( (n_graphs, graph_sizes[0], -1) )
+            else:
+                X = np.array([np.array(x_list, dtype=np.float) for x_list in X], dtype=np.object)
+                # X = np.array(X, dtype=object)
+        # Clean data?
+        if clean_data:
+            X = np.delete(X,to_delete, axis=0)
+        # Truncate the file name (to remove useless info).
+        data_name = file.name[len(dataset_name)+1:-4]
+        # Update return dictionnary
+        return_dict[data_name] = X
+
+    # Process node labels
+    if "node_labels" in return_dict.keys():
+        logger.debug("Processing node labels.")
+        # Graph the labels
+        X = return_dict["node_labels"]
+        # Squeeze every array, and convert everything to int
+        X = np.array([np.squeeze(l).astype(int) for l in X], dtype=np.object)
+        # Put everything back in the dictionnary
+        return_dict["node_labels"] = X
+
+    # Some stats
+    logger.debug(f"Found {n_graphs} graphs")
+    logger.debug(f"Found {len(np.unique(L))} classes")
+    logger.debug(f"Found {np.amin(graph_sizes)}-->{np.amax(graph_sizes)} graph sizes")
+
+    return return_dict
 
 ################################################################################
 ### Krylov subspaces-base method from 1812.10165 (ART) #########################
@@ -265,7 +414,7 @@ def get_er(k, N=200, p=.05, gamma=1.):
 #TODO: write self-sufficient function (with an appropriate wget?)
 def get_firstmm_db(k):
     """ Iterator. Yields k attributed graphs from the FIRSTMM_DB dataset. """
-    data_dict = utils.parse_dortmund_format(f"data/FIRSTMM_DB/", "FIRSTMM_DB")
+    data_dict = parse_dortmund_format(f"data/FIRSTMM_DB/", "FIRSTMM_DB")
     N = len(data_dict["node_attributes"])
     p = np.random.permutation(N)
     X_all = data_dict["node_attributes"][p[:k]]
@@ -580,6 +729,7 @@ def speed_MSE_analysis_firstmm_db():
 ################################################################################
 
 if __name__=="__main__":
+    get_firstmm_db_dataset()
     speed_MSE_analysis_firstmm_db()
     # bound_analysis_firstmm_db()
     # speed_analysis_er()
