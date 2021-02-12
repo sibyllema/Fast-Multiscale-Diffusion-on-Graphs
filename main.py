@@ -482,7 +482,7 @@ def get_bound_bergamaschi(L, tau, K):
     C   = tau*phi/2.
     return (2*E(C, K)/np.exp(-4*C))**2.
 
-def bound_analysis_firstmm_db():
+def bound_analysis_er():
     """ Display the average MSE and bounds for various graphs from the
         FIRSTMM_DB dataset, for various values of tau. """
     logger.debug("bound_analysis()")
@@ -517,11 +517,11 @@ def bound_analysis_firstmm_db():
     eta_all = np.average(eta_all, axis=0)
 
     # Plot all this
-    plt.plot(tau_all, bound_7_all, linestyle="dashed", label=f"Bound V.7 (K={K})")
+    # plt.plot(tau_all, bound_7_all, linestyle="dashed", label=f"Bound V.7 (K={K})")
     plt.plot(tau_all, bound_8_all, linestyle="dashed", label=f"Bound V.8 (K={K})")
     plt.plot(tau_all, bound_9_all, linestyle="dashed", label=f"Bound V.9 (K={K})")
     plt.plot(tau_all, bound_b_all, linestyle="dotted", label=f"Bergamaschi's (K={K})")
-    plt.plot(tau_all, eps_all, label=r"$\varepsilon_K$")
+    # plt.plot(tau_all, eps_all, label=r"$\varepsilon_K$")
     plt.plot(tau_all, eta_all, label=r"$\eta_K$")
     plt.xlabel(r"$\tau$")
     plt.ylabel("Error")
@@ -735,7 +735,7 @@ def speed_MSE_analysis_firstmm_db():
 
 if __name__=="__main__":
     get_firstmm_db_dataset()
-    bound_analysis_firstmm_db()
+    bound_analysis_er()
     # speed_MSE_analysis_firstmm_db()
     # speed_analysis_er()
     # speed_analysis_firstmm_db()
