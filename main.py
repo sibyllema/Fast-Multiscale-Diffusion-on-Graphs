@@ -472,8 +472,8 @@ def f_aux(C, K):
 def E(C, K):
     b = 2 / (1 + np.sqrt(5))
     d = np.exp(b) / (2 + np.sqrt(5))
-    if K <= C:
-        return np.exp( -b * (K+1)**2. / (4*C)) * (1 + np.sqrt(C * np.pi / b)) + (d**(4*C)) / (1+b)
+    if K <= 4*C:
+        return np.exp( (-b * (K+1)**2.) / (4*C)) * (1 + np.sqrt(C * np.pi / b)) + (d**(4*C)) / (1-d)
     else:
         return (d**K) / (1-d)
 
