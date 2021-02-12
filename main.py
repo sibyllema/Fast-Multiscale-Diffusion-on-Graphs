@@ -411,7 +411,6 @@ def get_er(k, N=200, p=.05, gamma=1.):
     for i in range(k):
         yield sample_er(N, p, gamma)
 
-#TODO: write self-sufficient function (with an appropriate wget?)
 def get_firstmm_db(k):
     """ Iterator. Yields k attributed graphs from the FIRSTMM_DB dataset. """
     data_dict = parse_dortmund_format(f"data/FIRSTMM_DB/", "FIRSTMM_DB")
@@ -426,24 +425,49 @@ def get_firstmm_db(k):
 ### Analysis of the theoretical bound ##########################################
 ################################################################################
 
+def g(K,C):
+    # True value
+    return 2 * np.exp((C**2.)/(K+2)-2*C) * (C**(K+1))/(factorial(K)*(K+1-C))
+    # # Upper bound, maybe more stable
+    # x = C*C/(K+2) - 2*C + (K+1)*np.log(C) - (K+.5)*np.log(K) + K
+    # return np.sqrt(2/np.pi) * np.exp(x)
+
+def get_bound_eps_generic(L, tau, K):
+    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+    C   = tau*phi/2.
+    return g(K,C)**2.
+
+def get_bound_eta_generic(L, tau, K):
+    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+    C   = tau*phi/2.
+    return g(K,C)**2. * np.exp(8*C)
+
+def get_bound_eta_specific(L, x, tau, K):
+    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+    C   = tau*phi/2.
+    n   = len(x)
+    a1  = np.sum(x)
+    assert(a1 != 0.)
+    return g(K,C)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
+
 def f_aux(C, K):
     """ Function f() defined in the paper (section on bound). """
     x = -2*C+C*C+(K+1)*np.log(C)-(K+.5)*np.log(K)+K
     return 2/(np.sqrt(2*np.pi)*(K+1-C))*np.exp(x)
     # return np.exp(C**2.) * 2 * np.exp(-2*C) * (C ** (K+1)) / (factorial(K) * (K+1-C))
 
-def get_bound_1(L, x, tau, K):
-    """ First bound of the paper. """
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
-    a   = np.abs(np.sum(x))
-    return (f_aux(C,K)*np.linalg.norm(x)/a)**2.
-
-def get_bound_2(L, tau, K):
-    """ Second bound of the paper. """
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
-    return f_aux(C, K)**2. / np.exp(-8*C)
+# def get_bound_1(L, x, tau, K):
+#     """ First bound of the paper. """
+#     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+#     C   = tau*phi/2.
+#     a   = np.abs(np.sum(x))
+#     return (f_aux(C,K)*np.linalg.norm(x)/a)**2.
+#
+# def get_bound_2(L, tau, K):
+#     """ Second bound of the paper. """
+#     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+#     C   = tau*phi/2.
+#     return f_aux(C, K)**2. / np.exp(-8*C)
 
 def E(C, K):
     b = 2 / (1 + np.sqrt(5))
@@ -467,57 +491,38 @@ def bound_analysis_firstmm_db():
     n_tau    = 20
     tau_all  = 10**np.linspace(-2.,0.,num=n_tau)
     K        = 10
-    bound_1_all = np.empty( (n_graphs,n_tau), dtype=np.float )
-    bound_2_all = np.empty( (n_graphs,n_tau), dtype=np.float )
+    bound_7_all = np.empty( (n_graphs,n_tau), dtype=np.float )
+    bound_8_all = np.empty( (n_graphs,n_tau), dtype=np.float )
+    bound_9_all = np.empty( (n_graphs,n_tau), dtype=np.float )
     bound_b_all = np.empty( (n_graphs,n_tau), dtype=np.float )
-    mse_all     = np.empty( (n_graphs,n_tau), dtype=np.float )
+    eps_all     = np.empty( (n_graphs,n_tau), dtype=np.float )
+    eta_all     = np.empty( (n_graphs,n_tau), dtype=np.float )
 
     # Compute bounds and errors
     for i,(L,X) in enumerate(get_er(n_graphs)):
         for j,tau in enumerate(tau_all):
-            bound_1_all[i,j] = get_bound_1(L, X, tau, K)
-            bound_2_all[i,j] = get_bound_2(L, tau, K)
+            bound_7_all[i,j] = get_bound_eps_generic(L, tau, K)
+            bound_8_all[i,j] = get_bound_eta_generic(L, tau, K)
+            bound_9_all[i,j] = get_bound_eta_specific(L, X, tau, K)
             bound_b_all[i,j] = get_bound_bergamaschi(L, tau, K)
             y_ref = sparse_expm_multiply(-tau*L, X)
             y_apr = expm_multiply(L, X, tau, K)
-            mse_all[i,j] = (np.linalg.norm(y_ref-y_apr)/np.linalg.norm(y_ref))**2
-    bound_1_all = np.average(bound_1_all, axis=0)
-    bound_2_all = np.average(bound_2_all, axis=0)
+            eps_all[i,j] = (np.linalg.norm(y_ref-y_apr)/np.linalg.norm(X))**2
+            eta_all[i,j] = (np.linalg.norm(y_ref-y_apr)/np.linalg.norm(y_ref))**2
+    bound_7_all = np.average(bound_7_all, axis=0)
+    bound_8_all = np.average(bound_8_all, axis=0)
+    bound_9_all = np.average(bound_9_all, axis=0)
     bound_b_all = np.average(bound_b_all, axis=0)
-    mse_all = np.average(mse_all, axis=0)
-
-    # # Load data from FIRSTMM_DB dataset
-    # d = utils.parse_dortmund_format("data/FIRSTMM_DB/", "FIRSTMM_DB", clean_data=True)
-    # n = len(d["node_attributes"])
-    #
-    # logger.debug("Preparing data.")
-    # p = np.argsort(d["graph_labels"])
-    # p = np.random.default_rng().permutation(n)
-    # L = d["node_labels"][p]
-    # X_attr = d["node_attributes"][p]
-    # # X_coor = d["node_coordinates"][p]
-    # # X_norm = d["node_normals"][p]
-    # M = d["graph_structures"][p]
-    #
-    # tau_all = 10**np.linspace(-2.,0.,num=20)
-    # K = 10
-    # laplac = laplacian(M[0])
-    # signal = X_attr[0]
-    #
-    # logger.debug(f"Computing bounds for tau {tau_all[0]:.2f}-->{tau_all[-1]:.2f}")
-    # bound_1_all = np.array([get_bound_1(laplac, signal, tau, K) for tau in tau_all])
-    # bound_2_all = np.array([get_bound_2(laplac, tau, K) for tau in tau_all])
-    #
-    # # Compute real MSE for various tau
-    # y_ref_all = [sparse_expm_multiply(-tau*laplac, signal) for tau in tau_all]
-    # y_apr_all = [expm_multiply(laplac, signal, tau, K) for tau in tau_all]
-    # mse_all   = [(np.linalg.norm(y_ref-y_apr)/np.linalg.norm(y_ref))**2. for y_ref,y_apr in zip(y_ref_all, y_apr_all)]
+    eps_all = np.average(eps_all, axis=0)
+    eta_all = np.average(eta_all, axis=0)
 
     # Plot all this
-    plt.plot(tau_all, bound_1_all, label=f"Bound 1 (K={K})")
-    plt.plot(tau_all, bound_2_all, label=f"Bound 2 (K={K})")
-    plt.plot(tau_all, bound_b_all, label=f"Bergamaschi's (K={K})")
-    plt.plot(tau_all, mse_all, label=f"MSE")
+    plt.plot(tau_all, bound_7_all, linestyle="dashed", label=f"Bound V.7 (K={K})")
+    plt.plot(tau_all, bound_8_all, linestyle="dashed", label=f"Bound V.8 (K={K})")
+    plt.plot(tau_all, bound_9_all, linestyle="dashed", label=f"Bound V.9 (K={K})")
+    plt.plot(tau_all, bound_b_all, linestyle="dotted", label=f"Bergamaschi's (K={K})")
+    plt.plot(tau_all, eps_all, label=r"$\varepsilon_K$")
+    plt.plot(tau_all, eta_all, label=r"$\eta_K$")
     plt.xlabel(r"$\tau$")
     plt.ylabel("Error")
     plt.xscale("log")
@@ -730,7 +735,7 @@ def speed_MSE_analysis_firstmm_db():
 
 if __name__=="__main__":
     get_firstmm_db_dataset()
-    speed_MSE_analysis_firstmm_db()
-    # bound_analysis_firstmm_db()
+    bound_analysis_firstmm_db()
+    # speed_MSE_analysis_firstmm_db()
     # speed_analysis_er()
     # speed_analysis_firstmm_db()
