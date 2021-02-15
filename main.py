@@ -450,25 +450,6 @@ def get_bound_eta_specific(L, x, tau, K):
     assert(a1 != 0.)
     return g(K,C)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
 
-def f_aux(C, K):
-    """ Function f() defined in the paper (section on bound). """
-    x = -2*C+C*C+(K+1)*np.log(C)-(K+.5)*np.log(K)+K
-    return 2/(np.sqrt(2*np.pi)*(K+1-C))*np.exp(x)
-    # return np.exp(C**2.) * 2 * np.exp(-2*C) * (C ** (K+1)) / (factorial(K) * (K+1-C))
-
-# def get_bound_1(L, x, tau, K):
-#     """ First bound of the paper. """
-#     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-#     C   = tau*phi/2.
-#     a   = np.abs(np.sum(x))
-#     return (f_aux(C,K)*np.linalg.norm(x)/a)**2.
-#
-# def get_bound_2(L, tau, K):
-#     """ Second bound of the paper. """
-#     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-#     C   = tau*phi/2.
-#     return f_aux(C, K)**2. / np.exp(-8*C)
-
 def E(C, K):
     b = 2 / (1 + np.sqrt(5))
     d = np.exp(b) / (2 + np.sqrt(5))
