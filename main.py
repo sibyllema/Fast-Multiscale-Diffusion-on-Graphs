@@ -406,9 +406,9 @@ def sample_er(N, p, gamma):
     # top triangular part, as a 1-dimensional vector).
     A_compressed = np.random.choice(2, size=(N*(N-1)//2,), p=[1.-p,p])
     # Compute the graph's combinatorial laplacian
-    L = laplacian(csr_matrix(squareform(A_compressed), dtype=np.longdouble))
+    L = laplacian(csr_matrix(squareform(A_compressed), dtype=np.float))
     # Sample the features
-    X = np.random.randn(N,1, dtype=np.longdouble) * gamma
+    X = np.random.randn(N,1) * gamma
     # Conclude
     return L, X
 
@@ -660,7 +660,7 @@ def speed_MSE_analysis_firstmm_db():
             idx = np.random.default_rng().integers(low=0,high=N)
             X = np.zeros((N,1), dtype=np.float)
             X[idx] = 1.
-            # Pre-compute the Chebychev polynomials, and spread it the
+            # Pre-compute the Chebychev polynomials, and spread its
             # computation time over all values of tau.
             t_start = time()
             f_cb = get_diffusion_fun(L, X, K=10)
@@ -701,23 +701,23 @@ def speed_MSE_analysis_firstmm_db():
 
     # Prepare plots
     f, ax0 = plt.subplots(nrows=1, ncols=1)
-    ax1 = plt.twinx()
+    # ax1 = plt.twinx()
 
     # Plot computation times wrt tau
     plt0sp = plot_fancy_error_bar(tau_list, time_sp, ax=ax0, color="red",   linestyle="solid", label="(time) Scipy")
     plt0cb = plot_fancy_error_bar(tau_list, time_cb, ax=ax0, color="blue",  linestyle="solid", label="(time) Chebychev")
     plt0ar = plot_fancy_error_bar(tau_list, time_ar, ax=ax0, color="green", linestyle="solid", label="(time) ART (Krylov)")
 
-    # Plot MSE wrt tau
-    plt1cb = plot_fancy_error_bar(tau_list, err_cb, ax=ax1, color="blue",  linestyle="dashed", label="(error) Chebychev")
-    plt1ar = plot_fancy_error_bar(tau_list, err_ar, ax=ax1, color="green", linestyle="dashed", label="(error) ART (Krylov)")
+    # # Plot MSE wrt tau
+    # plt1cb = plot_fancy_error_bar(tau_list, err_cb, ax=ax1, color="blue",  linestyle="dashed", label="(error) Chebychev")
+    # plt1ar = plot_fancy_error_bar(tau_list, err_ar, ax=ax1, color="green", linestyle="dashed", label="(error) ART (Krylov)")
 
     # Configure plot
     plt.xlabel(r"$\tau$")
     plt.xscale("log")
     ax0.set_ylabel("Time (s)")
-    ax1.set_ylabel("MSE")
-    ax1.set_yscale("log")
+    # ax1.set_ylabel("MSE")
+    # ax1.set_yscale("log")
     plt_all = [plt0sp, plt0cb, plt0ar]
     plt.legend(plt_all, [plt_.get_label() for plt_ in plt_all])
     plt.grid()
@@ -792,7 +792,7 @@ def generate_K_tau_err_figure():
 if __name__=="__main__":
     # get_firstmm_db_dataset()
     # generate_K_tau_err_figure()
-    bound_analysis_er()
-    # speed_MSE_analysis_firstmm_db()
+    # bound_analysis_er()
+    speed_MSE_analysis_firstmm_db()
     # speed_analysis_er()
     # speed_analysis_firstmm_db()
