@@ -1,11 +1,16 @@
 import os
 import numpy as np
-import matplotlib.pyplot as plt
 from time import time
 from tqdm import tqdm
 
 import requests # Performing HTTPS requests
 import zipfile # Manipulate zips
+
+# Plotting
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import cm # Color map
+plt.rcParams.update({'font.size': 12})
 
 # Usefull functions
 from scipy.special import ive # Bessel function
@@ -327,18 +332,19 @@ def compute_chebychev_pol(X, L, phi, K):
         T[j] = (2 / phi) * L @ T[j-1] - 2 * T[j-1] - T[j-2]
     return T
 
-def compute_chebychev_coeff(n, tau, phi):
-    """ Compute any Chebychev coefficient as a Bessel function"""
-    return 2 * ive(n, -tau * phi)
+# def compute_chebychev_coeff(n, tau, phi):
+#     """ Compute any Chebychev coefficient as a Bessel function"""
+#     return 2 * ive(n, -tau * phi)
 
 def compute_chebychev_coeff_all(phi, tau, K):
     """ Compute recursively the K+1 Chebychev coefficients for our functions. """
-    coeff = np.empty((K+1,), dtype=np.float)
-    coeff[-1] = compute_chebychev_coeff(K, phi, tau)
-    coeff[-2] = compute_chebychev_coeff(K-1, phi, tau)
-    for i in range(K - 2, -1, -1):
-        coeff[i] = coeff[i+2] - (2 * i + 2) / (tau * phi) * coeff[i+1]
-    return coeff
+    return 2*ive(np.arange(0, K+1), -tau * phi)
+    # coeff = np.empty((K+1,), dtype=np.float)
+    # coeff[-1] = compute_chebychev_coeff(K, phi, tau)
+    # coeff[-2] = compute_chebychev_coeff(K-1, phi, tau)
+    # for i in range(K - 2, -1, -1):
+    #     coeff[i] = coeff[i+2] - (2 * i + 2) / (tau * phi) * coeff[i+1]
+    # return coeff
 
 def expm_multiply(L, X, tau, K=None):
     """ Computes the action of exp(-t*L) on X for all t in X."""
@@ -440,6 +446,7 @@ def get_bound_eps_generic(L, tau, K):
 def get_bound_eta_generic(L, tau, K):
     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
     C   = tau*phi/2.
+    assert(K > C-1)
     return g(K,C)**2. * np.exp(8*C)
 
 def get_bound_eta_specific(L, x, tau, K):
@@ -461,12 +468,12 @@ def E(C, K):
 def get_bound_bergamaschi(L, tau, K):
     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
     C   = tau*phi/2.
-    return (2*E(C, K)/np.exp(-4*C))**2.
+    return (2*E(C, K)*np.exp(4*C))**2.
 
 def bound_analysis_er():
     """ Display the average MSE and bounds for various graphs from the
         FIRSTMM_DB dataset, for various values of tau. """
-    logger.debug("bound_analysis()")
+    logger.debug("bound_analysis_er()")
 
     n_graphs = 10
     n_tau    = 20
@@ -480,6 +487,7 @@ def bound_analysis_er():
     eta_all     = np.empty( (n_graphs,n_tau), dtype=np.float )
 
     # Compute bounds and errors
+    pbar = tqdm(total=n_graphs*n_tau)
     for i,(L,X) in enumerate(get_er(n_graphs)):
         for j,tau in enumerate(tau_all):
             bound_7_all[i,j] = get_bound_eps_generic(L, tau, K)
@@ -490,6 +498,8 @@ def bound_analysis_er():
             y_apr = expm_multiply(L, X, tau, K)
             eps_all[i,j] = (np.linalg.norm(y_ref-y_apr)/np.linalg.norm(X))**2
             eta_all[i,j] = (np.linalg.norm(y_ref-y_apr)/np.linalg.norm(y_ref))**2
+            pbar.update(1)
+    pbar.close()
     bound_7_all = np.average(bound_7_all, axis=0)
     bound_8_all = np.average(bound_8_all, axis=0)
     bound_9_all = np.average(bound_9_all, axis=0)
@@ -711,11 +721,74 @@ def speed_MSE_analysis_firstmm_db():
     plt.show()
 
 ################################################################################
+### 3d diagram tau/K/error #####################################################
+################################################################################
+
+def generate_K_tau_err_figure():
+    # Experiment parameters
+    n_K_val   = 15 # Number of values of K
+    n_tau_val = 20 # Number of tau values
+    n_graphs  = 10 # Number of graphs to average the performance over
+    K_list    = np.arange(1,1+n_K_val)
+    tau_list  = 10**np.linspace(-5.,1., num=n_tau_val)
+
+    # Experiment results
+    err_all_1 = np.empty((n_K_val,n_tau_val,n_graphs), dtype=np.float)
+    err_all_2 = np.empty((n_K_val,n_tau_val,n_graphs), dtype=np.float)
+    err_ref   = np.empty((n_K_val,n_tau_val,n_graphs), dtype=np.float)
+
+    pbar=tqdm(total=n_K_val*n_tau_val*n_graphs)
+    for k,(L,X) in enumerate(get_firstmm_db(n_graphs)):
+        for i,K in enumerate(K_list):
+            for j,tau in enumerate(tau_list):
+                # Compute and store first bound
+                err_all_1[i,j,k] = get_bound_eta_generic(L, tau, K)
+                # Compute and store second bound
+                err_all_2[i,j,k] = get_bound_eta_specific(L, X, tau, K)
+                # Compute and store eta (MSE on output)
+                y_che = expm_multiply(L, X, tau, K)
+                y_ref = sparse_expm_multiply(-tau*L, X)
+                err_ref[i,j,k] = (np.linalg.norm(y_che-y_ref) / np.linalg.norm(y_ref))**2.
+                pbar.update(1)
+    pbar.close()
+
+    # Average errors over all sampled graphs
+    err_all_1 = np.average(err_all_1, axis=-1)
+    err_all_2 = np.average(err_all_2, axis=-1)
+    err_ref   = np.average(err_ref, axis=-1)
+
+    # 3D plot the error landscapes
+    fig = plt.figure()
+    X,Y = np.meshgrid(K_list, np.log10(tau_list), indexing="ij")
+
+    # First bound
+    ax = fig.add_subplot(131, projection='3d')
+    ax.plot_surface(X, Y, np.log10(err_all_1), cmap=cm.coolwarm)
+    ax.set_xlabel("K", rotation=-25)
+    ax.set_ylabel(r"$\log_{10}(\tau^t)$")
+    ax.set_zlabel(r"$\log_{10}(bound 1)$", rotation=60)
+    # Second bound
+    ax = fig.add_subplot(132, projection='3d')
+    ax.plot_surface(X, Y, np.log10(err_all_2), cmap=cm.coolwarm)
+    ax.set_xlabel("K", rotation=-25)
+    ax.set_ylabel(r"$\log_{10}(\tau^t)$")
+    ax.set_zlabel(r"$\log_{10}(bound 2)$", rotation=60)
+    # Real error
+    ax = fig.add_subplot(133, projection='3d')
+    ax.plot_surface(X, Y, np.log10(err_ref), cmap=cm.coolwarm)
+    ax.set_xlabel("K", rotation=-25)
+    ax.set_ylabel(r"$\log_{10}(\tau^t)$")
+    ax.set_zlabel(r"$\log_{10}(\eta)$", rotation=60)
+
+    plt.show()
+
+################################################################################
 ### Main #######################################################################
 ################################################################################
 
 if __name__=="__main__":
-    get_firstmm_db_dataset()
+    # get_firstmm_db_dataset()
+    # generate_K_tau_err_figure()
     bound_analysis_er()
     # speed_MSE_analysis_firstmm_db()
     # speed_analysis_er()
