@@ -529,36 +529,40 @@ def bound_analysis_er():
 ### Speed test on fixed tau ####################################################
 ################################################################################
 
-def speed_analysis_er():
-    n_graphs = 10
-    rep_all  = list(range(1,6)) # [1] + [2*(i+1) for i in range(5)]
-    n_rep    = len(rep_all)
-    tau      = .1
+def speed_with_K_er():
+    logger.debug("### speed_with_K_er() ###")
+    n_graphs = 20
+    n_rep    = 6
+    tau_log_min = -5.
+    tau_log_max = 0.
 
-    print("=== Erdos-Reyni + gaussian signal")
     time_sp = np.zeros((n_rep,n_graphs))
     time_ar = np.zeros((n_rep,n_graphs))
     time_cb = np.zeros((n_rep,n_graphs))
 
     pbar = tqdm(total=n_graphs*n_rep)
     for i,(L,X) in enumerate(get_er(n_graphs, N=10000, p=.05)):
-        for j,rep in enumerate(rep_all):
+        for j in range(n_rep):
+            # Number of tau values to pick
+            rep = j+1
+            # All tau values.
+            tau_all = 10**np.linspace(tau_log_min, tau_log_max,num=rep+2)[1:-1]
             # Compute scipy's method
             t_start = time()
-            for _ in range(rep):
+            for tau in tau_all:
                 _ = sparse_expm_multiply(-tau*L, X)
             t_stop = time()
             time_sp[j,i] += t_stop - t_start
             # Compute ART's method
             t_start = time()
-            for _ in range(rep):
+            for tau in tau_all:
                 _ = art_expm(L, X, tau, toler=1e-5, m=60)
             t_stop = time()
             time_ar[j,i] += t_stop - t_start
             # Compute our method
             t_start = time()
             f = get_diffusion_fun(L, X, K=10)
-            for _ in range(rep):
+            for tau in tau_all:
                 _ = f(tau)
             t_stop = time()
             time_cb[j,i] += t_stop - t_start
@@ -566,65 +570,12 @@ def speed_analysis_er():
             pbar.update(1)
     pbar.close()
 
-    plot_fancy_error_bar(rep_all, time_sp, label="Scipy")
-    plot_fancy_error_bar(rep_all, time_cb, label="Chebychev")
-    plot_fancy_error_bar(rep_all, time_ar, label="ART (Krylov)")
+    x = list(range(1, n_rep+1))
+    plot_fancy_error_bar(x, time_sp, label="Scipy")
+    plot_fancy_error_bar(x, time_cb, label="Chebychev")
+    plot_fancy_error_bar(x, time_ar, label="ART (Krylov)")
 
-    plt.xlabel("Number of repetitions")
-    plt.ylabel("Time (s)")
-    plt.legend()
-    plt.grid()
-    plt.show()
-
-def speed_analysis_firstmm_db():
-    n_graphs = 10
-    rep_all  = [1] + [2*(i+1) for i in range(5)]
-    n_rep    = len(rep_all)
-    tau      = .1
-
-    print("=== FIRSTMM_DB dataset")
-    time_sp = np.zeros((n_graphs,n_rep))
-    time_ar = np.zeros((n_graphs,n_rep))
-    time_cb = np.zeros((n_graphs,n_rep))
-
-    pbar = tqdm(total=n_graphs*n_rep)
-    for i,(L,X) in enumerate(get_firstmm_db(n_graphs)):
-        for j,rep in enumerate(rep_all):
-            # Compute scipy's method
-            t_start = time()
-            for _ in range(rep):
-                _ = sparse_expm_multiply(-tau*L, X)
-            t_stop = time()
-            time_sp[i,j] += t_stop - t_start
-            # Compute ART's method
-            t_start = time()
-            for _ in range(rep):
-                _ = art_expm(L, X, tau, toler=1e-3, m=60)
-            t_stop = time()
-            time_ar[i,j] += t_stop - t_start
-            # Compute our method
-            t_start = time()
-            f = get_diffusion_fun(L, X, K=10)
-            for _ in range(rep):
-                _ = f(tau)
-            t_stop = time()
-            time_cb[i,j] += t_stop - t_start
-
-            pbar.update(1)
-    pbar.close()
-
-    time_sp = time_sp / n_graphs
-    time_ar = time_ar / n_graphs
-    time_cb = time_cb / n_graphs
-
-    time_sp = np.average(time_sp, axis=0)
-    time_ar = np.average(time_ar, axis=0)
-    time_cb = np.average(time_cb, axis=0)
-
-    plt.plot(rep_all, time_sp, label="Scipy")
-    plt.plot(rep_all, time_cb, label="Chebychev")
-    plt.plot(rep_all, time_ar, label="ART (Krylov)")
-    plt.xlabel("Number of repetitions")
+    plt.xlabel(r"Number of $\tau$ values")
     plt.ylabel("Time (s)")
     plt.legend()
     plt.grid()
@@ -663,7 +614,6 @@ def speed_MSE_analysis_firstmm_db():
             # Pre-compute the Chebychev polynomials, and spread its
             # computation time over all values of tau.
             t_start = time()
-            f_cb = get_diffusion_fun(L, X, K=10)
             t_stop = time()
             time_cb[:,j,i] += (t_stop - t_start) / n_tau_val
             for k,tau in enumerate(tau_list):
@@ -681,6 +631,7 @@ def speed_MSE_analysis_firstmm_db():
 
                 # Compute diffusion with our method
                 t_start = time()
+                f_cb = get_diffusion_fun(L, X, K=10)
                 Y_cb = f_cb(tau)
                 t_stop = time()
                 time_cb[k,j,i] += t_stop - t_start
@@ -793,6 +744,5 @@ if __name__=="__main__":
     # get_firstmm_db_dataset()
     # generate_K_tau_err_figure()
     # bound_analysis_er()
-    speed_MSE_analysis_firstmm_db()
-    # speed_analysis_er()
-    # speed_analysis_firstmm_db()
+    # speed_MSE_analysis_firstmm_db()
+    speed_with_K_er()
