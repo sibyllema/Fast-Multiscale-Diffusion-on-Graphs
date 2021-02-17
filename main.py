@@ -58,8 +58,8 @@ def plot_fancy_error_bar(x, y, ax=None, type="median_quartiles", label=None, **k
         y_up        = np.percentile(y, q=25, axis=-1)
         y_down      = np.percentile(y, q=75, axis=-1)
     elif type=="average_std":
-        y_center    = np.average(x, axis=-1)
-        y_std       = np.std(x, axis=-1)
+        y_center    = np.average(y, axis=-1)
+        y_std       = np.std(y, axis=-1)
         y_up        = y_center + y_std
         y_down      = y_center - y_std
 
@@ -406,9 +406,9 @@ def sample_er(N, p, gamma):
     # top triangular part, as a 1-dimensional vector).
     A_compressed = np.random.choice(2, size=(N*(N-1)//2,), p=[1.-p,p])
     # Compute the graph's combinatorial laplacian
-    L = laplacian(csr_matrix(squareform(A_compressed), dtype=np.float))
+    L = laplacian(csr_matrix(squareform(A_compressed), dtype=np.longdouble))
     # Sample the features
-    X = np.random.randn(N,1) * gamma
+    X = np.random.randn(N,1, dtype=np.longdouble) * gamma
     # Conclude
     return L, X
 
@@ -465,10 +465,18 @@ def E(C, K):
     else:
         return (d**K) / (1-d)
 
-def get_bound_bergamaschi(L, tau, K):
+def get_bound_bergamaschi_generic(L, tau, K):
     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
     C   = tau*phi/2.
     return (2*E(C, K)*np.exp(4*C))**2.
+
+def get_bound_bergamaschi_specific(L, x, tau, K):
+    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+    C   = tau*phi/2.
+    n   = len(x)
+    a1  = np.sum(x)
+    assert(a1 != 0.)
+    return 4 * E(C,K)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
 
 def bound_analysis_er():
     """ Display the average MSE and bounds for various graphs from the
@@ -482,7 +490,8 @@ def bound_analysis_er():
     bound_7_all = np.empty( (n_graphs,n_tau), dtype=np.float )
     bound_8_all = np.empty( (n_graphs,n_tau), dtype=np.float )
     bound_9_all = np.empty( (n_graphs,n_tau), dtype=np.float )
-    bound_b_all = np.empty( (n_graphs,n_tau), dtype=np.float )
+    bound_11_all = np.empty( (n_graphs,n_tau), dtype=np.float )
+    bound_12_all = np.empty( (n_graphs,n_tau), dtype=np.float )
     eps_all     = np.empty( (n_graphs,n_tau), dtype=np.float )
     eta_all     = np.empty( (n_graphs,n_tau), dtype=np.float )
 
@@ -493,27 +502,21 @@ def bound_analysis_er():
             bound_7_all[i,j] = get_bound_eps_generic(L, tau, K)
             bound_8_all[i,j] = get_bound_eta_generic(L, tau, K)
             bound_9_all[i,j] = get_bound_eta_specific(L, X, tau, K)
-            bound_b_all[i,j] = get_bound_bergamaschi(L, tau, K)
+            bound_11_all[i,j] = get_bound_bergamaschi_specific(L, X, tau, K)
+            bound_12_all[i,j] = get_bound_bergamaschi_generic(L, tau, K)
             y_ref = sparse_expm_multiply(-tau*L, X)
             y_apr = expm_multiply(L, X, tau, K)
             eps_all[i,j] = (np.linalg.norm(y_ref-y_apr)/np.linalg.norm(X))**2
             eta_all[i,j] = (np.linalg.norm(y_ref-y_apr)/np.linalg.norm(y_ref))**2
             pbar.update(1)
     pbar.close()
-    bound_7_all = np.average(bound_7_all, axis=0)
-    bound_8_all = np.average(bound_8_all, axis=0)
-    bound_9_all = np.average(bound_9_all, axis=0)
-    bound_b_all = np.average(bound_b_all, axis=0)
-    eps_all = np.average(eps_all, axis=0)
-    eta_all = np.average(eta_all, axis=0)
 
     # Plot all this
-    # plt.plot(tau_all, bound_7_all, linestyle="dashed", label=f"Bound V.7 (K={K})")
-    plt.plot(tau_all, bound_8_all, linestyle="dashed", label=f"Bound V.8 (K={K})")
-    plt.plot(tau_all, bound_9_all, linestyle="dashed", label=f"Bound V.9 (K={K})")
-    plt.plot(tau_all, bound_b_all, linestyle="dotted", label=f"Bergamaschi's (K={K})")
-    # plt.plot(tau_all, eps_all, label=r"$\varepsilon_K$")
-    plt.plot(tau_all, eta_all, label=r"$\eta_K$")
+    plot_fancy_error_bar(tau_all, bound_8_all.T, label=f"Bound V.8 (generic)", linestyle="dashed")
+    plot_fancy_error_bar(tau_all, bound_9_all.T, label=f"Bound V.9 (specific)", linestyle="dashed")
+    plot_fancy_error_bar(tau_all, bound_12_all.T, label=f"Bergamaschi's generic", linestyle="dotted")
+    plot_fancy_error_bar(tau_all, bound_11_all.T, label=f"Bergamaschi's specific", linestyle="dotted")
+    plot_fancy_error_bar(tau_all, eta_all.T, label=rf"$\eta_{ {K} }$", color="black")
     plt.xlabel(r"$\tau$")
     plt.ylabel("Error")
     plt.xscale("log")
