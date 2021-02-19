@@ -471,6 +471,32 @@ def get_bound_bergamaschi_specific(L, x, tau, K):
 ### Theoretical bound analysis #################################################
 ################################################################################
 
+def reverse_bound(f, L, x, tau, err):
+    """ Returns the minimal K such that f(L,x,tau,K) <= err. """
+    # Starting value: C-1
+    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+    C   = tau*phi/2.
+    K_min = max(1,int(C))
+
+    # Step 0: is E(C-1) enough?
+    if f(L,x,tau,K_min) <= err:
+        return K_min
+
+    # Step 1: searches any K such that f(*args) <= err.
+    K_max = 2 * K_min
+    while f(L,x,tau,K_max) > err:
+        K_min = K_max
+        K_max = 2 * K_min
+
+    # Step 2: now we have f(...,K_max) <= err < f(...,K_min). Dichotomy!
+    while K_max > 1+K_min:
+        K_int = (K_max + K_min) // 2
+        if f(L,x,tau,K_int) <= err:
+            K_max = K_int
+        else:
+            K_min = K_int
+    return K_max
+
 def bound_analysis_er():
     """ Display the average MSE and bounds for various graphs from the
         FIRSTMM_DB dataset, for various values of tau. """
@@ -492,6 +518,8 @@ def bound_analysis_er():
     pbar = tqdm(total=n_graphs*n_tau)
     for i,(L,X) in enumerate(get_er(n_graphs)):
         for j,tau in enumerate(tau_all):
+            print(reverse_bound(get_bound_eta_generic, L, X, tau, 1e-32))
+            quit()
             bound_7_all[i,j] = get_bound_eps_generic(L, tau, K)
             bound_8_all[i,j] = get_bound_eta_generic(L, tau, K)
             bound_9_all[i,j] = get_bound_eta_specific(L, X, tau, K)
@@ -736,6 +764,6 @@ def generate_K_tau_err_figure():
 if __name__=="__main__":
     # get_firstmm_db_dataset()
     # generate_K_tau_err_figure()
-    # bound_analysis_er()
+    bound_analysis_er()
     # speed_MSE_analysis_firstmm_db()
-    speed_with_K_er()
+    # speed_with_K_er()
