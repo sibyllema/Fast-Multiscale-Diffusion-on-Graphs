@@ -332,19 +332,9 @@ def compute_chebychev_pol(X, L, phi, K):
         T[j] = (2 / phi) * L @ T[j-1] - 2 * T[j-1] - T[j-2]
     return T
 
-# def compute_chebychev_coeff(n, tau, phi):
-#     """ Compute any Chebychev coefficient as a Bessel function"""
-#     return 2 * ive(n, -tau * phi)
-
 def compute_chebychev_coeff_all(phi, tau, K):
     """ Compute recursively the K+1 Chebychev coefficients for our functions. """
     return 2*ive(np.arange(0, K+1), -tau * phi)
-    # coeff = np.empty((K+1,), dtype=np.float)
-    # coeff[-1] = compute_chebychev_coeff(K, phi, tau)
-    # coeff[-2] = compute_chebychev_coeff(K-1, phi, tau)
-    # for i in range(K - 2, -1, -1):
-    #     coeff[i] = coeff[i+2] - (2 * i + 2) / (tau * phi) * coeff[i+1]
-    # return coeff
 
 def expm_multiply(L, X, tau, K=None):
     """ Computes the action of exp(-t*L) on X for all t in X."""
@@ -375,7 +365,6 @@ def expm_multiply(L, X, tau, K=None):
         for index,t in np.ndenumerate(tau):
             out[index] = h(t)
         return out
-        # return np.vectorize(h)(tau)
     else:
         print(f"expm_multiply(): unsupported data type for tau ({type(tau)})")
 
