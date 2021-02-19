@@ -427,12 +427,12 @@ def g(K,C):
     # x = C*C/(K+2) - 2*C + (K+1)*np.log(C) - (K+.5)*np.log(K) + K
     # return np.sqrt(2/np.pi) * np.exp(x)
 
-def get_bound_eps_generic(L, tau, K):
+def get_bound_eps_generic(L, x, tau, K):
     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
     C   = tau*phi/2.
     return g(K,C)**2.
 
-def get_bound_eta_generic(L, tau, K):
+def get_bound_eta_generic(L, x, tau, K):
     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
     C   = tau*phi/2.
     assert(K > C-1)
@@ -454,7 +454,7 @@ def E(C, K):
     else:
         return (d**K) / (1-d)
 
-def get_bound_bergamaschi_generic(L, tau, K):
+def get_bound_bergamaschi_generic(L, x, tau, K):
     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
     C   = tau*phi/2.
     return (2*E(C, K)*np.exp(4*C))**2.
