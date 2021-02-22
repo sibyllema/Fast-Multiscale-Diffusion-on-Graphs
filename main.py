@@ -372,7 +372,7 @@ def reverse_bound(f, L, x, tau, err):
     # Starting value: C-1
     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
     C   = tau*phi/2.
-    K_min = max(1,int(C))
+    K_min = max(10,int(C))
 
     # Step 0: is E(C-1) enough?
     if f(L,x,tau,K_min) <= err:
@@ -413,26 +413,31 @@ def compute_chebychev_coeff_all(phi, tau, K):
     """ Compute recursively the K+1 Chebychev coefficients for our functions. """
     return 2*ive(np.arange(0, K+1), -tau * phi)
 
-def expm_multiply(L, X, tau, K=None):
+def expm_multiply(L, X, tau, K=None, err=1e-32):
     """ Computes the action of exp(-t*L) on X for all t in X."""
-    # If K is not provided, fall back on default value (40).
-    if K is None:
-        K = K_base
     # Compute phi = l_max/2
     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    # Compute Chebychev polynomials
-    poly = compute_chebychev_pol(X, L, phi, K)
-    # Check if tau is a simgle value or an array.
+    # Check if tau is a single value, a list or a ndarray.
     if isinstance(tau, (float, int)):
-        # Only 1 value.
+        # Get minimal K to go below the desired error
+        if K is None: K = reverse_bound(get_bound_eta_specific, L, X, tau, err)
+        # Compute Chebychev polynomials
+        poly = compute_chebychev_pol(X, L, phi, K)
+        # Compute Chebychev coefficients
         coeff = compute_chebychev_coeff_all(phi, tau, K)
+        # Perform linear combination
         Y = .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
         return Y
     elif isinstance(tau, list):
+        # Same as earlier, but iterate on a list.
+        if K is None: K = reverse_bound(get_bound_eta_specific, L, X, max(tau), err)
+        poly = compute_chebychev_pol(X, L, phi, K)
         coeff_list = [compute_chebychev_coeff_all(phi, t, K) for t in tau]
         Y_list = [.5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T for coeff in coeff_list]
         return Y_list
     elif isinstance(tau, np.ndarray):
+        if K is None: K = reverse_bound(get_bound_eta_specific, L, X, np.amax(tau), err)
+        poly = compute_chebychev_pol(X, L, phi, K)
         f = lambda t: compute_chebychev_coeff_all(phi, t, K)
         g = lambda coeff: .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
         h = lambda t: g(f(t))
@@ -584,27 +589,27 @@ def bound_analysis_er():
     plt.show()
 
 ################################################################################
-### Speed test on fixed tau ####################################################
+### Speed // ER // Increasing set of tau #######################################
 ################################################################################
 
-def speed_with_K_er():
+def speed_for_set_of_tau():
     logger.debug("### speed_with_K_er() ###")
     n_graphs = 20
-    n_rep    = 6
+    n_rep    = 10
     tau_log_min = -5.
-    tau_log_max = 0.
+    tau_log_max = -1.
 
     time_sp = np.zeros((n_rep,n_graphs))
     time_ar = np.zeros((n_rep,n_graphs))
     time_cb = np.zeros((n_rep,n_graphs))
 
     pbar = tqdm(total=n_graphs*n_rep)
-    for i,(L,X) in enumerate(get_er(n_graphs, N=10000, p=.05)):
+    for i,(L,X) in enumerate(get_er(n_graphs, N=1000, p=.05)):
         for j in range(n_rep):
-            # Number of tau values to pick
-            rep = j+1
+            # Number of tau values to pick, beyind the max & min ones
+            rep = j
             # All tau values.
-            tau_all = 10**np.linspace(tau_log_min, tau_log_max,num=rep+2)[1:-1]
+            tau_all = 10**np.linspace(tau_log_min, tau_log_max,num=rep+2)
             # Compute scipy's method
             t_start = time()
             for tau in tau_all:
@@ -619,16 +624,14 @@ def speed_with_K_er():
             time_ar[j,i] += t_stop - t_start
             # Compute our method
             t_start = time()
-            f = get_diffusion_fun(L, X, K=10)
-            for tau in tau_all:
-                _ = f(tau)
+            _ = expm_multiply(L, X, tau_all, K=10, err=1e-5)
             t_stop = time()
             time_cb[j,i] += t_stop - t_start
 
             pbar.update(1)
     pbar.close()
 
-    x = list(range(1, n_rep+1))
+    x = list(range(2, n_rep+2))
     plot_fancy_error_bar(x, time_sp, label="Scipy")
     plot_fancy_error_bar(x, time_cb, label="Chebychev")
     plot_fancy_error_bar(x, time_ar, label="ART (Krylov)")
@@ -799,8 +802,8 @@ def generate_K_tau_err_figure():
 ################################################################################
 
 if __name__=="__main__":
-    min_K_er()
+    # min_K_er()
     # get_firstmm_db_dataset()
     # generate_K_tau_err_figure()
     # speed_MSE_analysis_firstmm_db()
-    # speed_with_K_er()
+    speed_for_set_of_tau()
