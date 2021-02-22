@@ -320,6 +320,14 @@ def art_expm(A, v, t, toler=1e05, m=10, verbose=False):
 ### Theoretical bound definition ###############################################
 ################################################################################
 
+def h(K,C):
+    """ Equivalent function to g() from "Two polynomial methods of calculating
+        functions of symmetric matrices". """
+    # Swap g and h to experiment with the bound from Durskin89.
+    m = K+1
+    a = 2*C
+    return 2 * (a/2)**m * np.exp(a**2/4) / (factorial(m) * (1- a/(2*(m+1))))
+
 def g(K,C):
     # True value
     return 2 * np.exp((C**2.)/(K+2)-2*C) * (C**(K+1))/(factorial(K)*(K+1-C))
