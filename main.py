@@ -367,6 +367,32 @@ def get_bound_bergamaschi_specific(L, x, tau, K):
     assert(a1 != 0.)
     return 4 * E(C,K)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
 
+def reverse_bound(f, L, x, tau, err):
+    """ Returns the minimal K such that f(L,x,tau,K) <= err. """
+    # Starting value: C-1
+    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+    C   = tau*phi/2.
+    K_min = max(1,int(C))
+
+    # Step 0: is E(C-1) enough?
+    if f(L,x,tau,K_min) <= err:
+        return K_min
+
+    # Step 1: searches any K such that f(*args) <= err.
+    K_max = 2 * K_min
+    while f(L,x,tau,K_max) > err:
+        K_min = K_max
+        K_max = 2 * K_min
+
+    # Step 2: now we have f(...,K_max) <= err < f(...,K_min). Dichotomy!
+    while K_max > 1+K_min:
+        K_int = (K_max + K_min) // 2
+        if f(L,x,tau,K_int) <= err:
+            K_max = K_int
+        else:
+            K_min = K_int
+    return K_max
+
 ################################################################################
 ### Our method to compute the diffusion ########################################
 ################################################################################
@@ -470,32 +496,6 @@ def get_firstmm_db(k):
 ################################################################################
 ### Theoretical bound analysis #################################################
 ################################################################################
-
-def reverse_bound(f, L, x, tau, err):
-    """ Returns the minimal K such that f(L,x,tau,K) <= err. """
-    # Starting value: C-1
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
-    K_min = max(1,int(C))
-
-    # Step 0: is E(C-1) enough?
-    if f(L,x,tau,K_min) <= err:
-        return K_min
-
-    # Step 1: searches any K such that f(*args) <= err.
-    K_max = 2 * K_min
-    while f(L,x,tau,K_max) > err:
-        K_min = K_max
-        K_max = 2 * K_min
-
-    # Step 2: now we have f(...,K_max) <= err < f(...,K_min). Dichotomy!
-    while K_max > 1+K_min:
-        K_int = (K_max + K_min) // 2
-        if f(L,x,tau,K_int) <= err:
-            K_max = K_int
-        else:
-            K_min = K_int
-    return K_max
 
 def min_K_er():
     """ Display the minimum K to achieve a desired accuracy against tau. """
