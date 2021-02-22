@@ -317,6 +317,57 @@ def art_expm(A, v, t, toler=1e05, m=10, verbose=False):
     return y
 
 ################################################################################
+### Theoretical bound definition ###############################################
+################################################################################
+
+def g(K,C):
+    # True value
+    return 2 * np.exp((C**2.)/(K+2)-2*C) * (C**(K+1))/(factorial(K)*(K+1-C))
+    # # Upper bound, maybe more stable
+    # x = C*C/(K+2) - 2*C + (K+1)*np.log(C) - (K+.5)*np.log(K) + K
+    # return np.sqrt(2/np.pi) * np.exp(x)
+
+def get_bound_eps_generic(L, x, tau, K):
+    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+    C   = tau*phi/2.
+    return g(K,C)**2.
+
+def get_bound_eta_generic(L, x, tau, K):
+    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+    C   = tau*phi/2.
+    assert(K > C-1)
+    return g(K,C)**2. * np.exp(8*C)
+
+def get_bound_eta_specific(L, x, tau, K):
+    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+    C   = tau*phi/2.
+    n   = len(x)
+    a1  = np.sum(x)
+    assert(a1 != 0.)
+    return g(K,C)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
+
+def E(C, K):
+    b = 2 / (1 + np.sqrt(5))
+    d = np.exp(b) / (2 + np.sqrt(5))
+    if K <= 4*C:
+        return np.exp( (-b * (K+1)**2.) / (4*C)) * (1 + np.sqrt(C * np.pi / b)) + (d**(4*C)) / (1-d)
+    else:
+        return (d**K) / (1-d)
+
+def get_bound_bergamaschi_generic(L, x, tau, K):
+    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+    C   = tau*phi/2.
+    return (2*E(C, K)*np.exp(4*C))**2.
+
+def get_bound_bergamaschi_specific(L, x, tau, K):
+    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+    C   = tau*phi/2.
+    n   = len(x)
+    a1  = np.sum(x)
+    assert(a1 != 0.)
+    return 4 * E(C,K)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
+
+################################################################################
 ### Our method to compute the diffusion ########################################
 ################################################################################
 
@@ -417,57 +468,6 @@ def get_firstmm_db(k):
     return zip(L_all, X_all)
 
 ################################################################################
-### Theoretical bound definition ###############################################
-################################################################################
-
-def g(K,C):
-    # True value
-    return 2 * np.exp((C**2.)/(K+2)-2*C) * (C**(K+1))/(factorial(K)*(K+1-C))
-    # # Upper bound, maybe more stable
-    # x = C*C/(K+2) - 2*C + (K+1)*np.log(C) - (K+.5)*np.log(K) + K
-    # return np.sqrt(2/np.pi) * np.exp(x)
-
-def get_bound_eps_generic(L, x, tau, K):
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
-    return g(K,C)**2.
-
-def get_bound_eta_generic(L, x, tau, K):
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
-    assert(K > C-1)
-    return g(K,C)**2. * np.exp(8*C)
-
-def get_bound_eta_specific(L, x, tau, K):
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
-    n   = len(x)
-    a1  = np.sum(x)
-    assert(a1 != 0.)
-    return g(K,C)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
-
-def E(C, K):
-    b = 2 / (1 + np.sqrt(5))
-    d = np.exp(b) / (2 + np.sqrt(5))
-    if K <= 4*C:
-        return np.exp( (-b * (K+1)**2.) / (4*C)) * (1 + np.sqrt(C * np.pi / b)) + (d**(4*C)) / (1-d)
-    else:
-        return (d**K) / (1-d)
-
-def get_bound_bergamaschi_generic(L, x, tau, K):
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
-    return (2*E(C, K)*np.exp(4*C))**2.
-
-def get_bound_bergamaschi_specific(L, x, tau, K):
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
-    n   = len(x)
-    a1  = np.sum(x)
-    assert(a1 != 0.)
-    return 4 * E(C,K)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
-
-################################################################################
 ### Theoretical bound analysis #################################################
 ################################################################################
 
@@ -497,6 +497,45 @@ def reverse_bound(f, L, x, tau, err):
             K_min = K_int
     return K_max
 
+def min_K_er():
+    """ Display the minimum K to achieve a desired accuracy against tau. """
+    logger.debug("### min_K_er() ###")
+    n_graphs = 10
+    n_val    = 20
+    # tau_all  = 10**np.linspace(-2.,2.,num=n_val)
+    tau      = .1
+    err_all  = 10**np.linspace(-32, -3, num=n_val)
+    # err      = 1e-5
+    bound_8_all  = np.empty( (n_graphs,n_val), dtype=np.float )
+    bound_9_all  = np.empty( (n_graphs,n_val), dtype=np.float )
+    bound_11_all = np.empty( (n_graphs,n_val), dtype=np.float )
+    bound_12_all = np.empty( (n_graphs,n_val), dtype=np.float )
+
+    logger.debug("Computing minimum K")
+    pbar = tqdm(total=n_graphs*n_val)
+    for i,(L,X) in enumerate(get_er(n_graphs)):
+        # for j,tau in enumerate(tau_all):
+        for j,err in enumerate(err_all):
+            bound_8_all[i,j]  = reverse_bound(get_bound_eta_generic, L, X, tau, err)
+            bound_9_all[i,j]  = reverse_bound(get_bound_eta_specific, L, X, tau, err)
+            bound_11_all[i,j] = reverse_bound(get_bound_bergamaschi_specific, L, X, tau, err)
+            bound_12_all[i,j] = reverse_bound(get_bound_bergamaschi_generic, L, X, tau, err)
+            pbar.update(1)
+    pbar.close()
+
+    # Plot all this
+    plot_fancy_error_bar(err_all, bound_8_all.T, label=f"With bound V.8 (generic)", linestyle="dashed")
+    plot_fancy_error_bar(err_all, bound_9_all.T, label=f"With bound V.9 (specific)", linestyle="dashed")
+    plot_fancy_error_bar(err_all, bound_12_all.T, label=f"With Bergamaschi's generic", linestyle="dotted")
+    plot_fancy_error_bar(err_all, bound_11_all.T, label=f"With Bergamaschi's specific", linestyle="dotted")
+    plt.xlabel(r"Desired $\eta$")
+    plt.ylabel("K")
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.grid()
+    plt.legend()
+    plt.show()
+
 def bound_analysis_er():
     """ Display the average MSE and bounds for various graphs from the
         FIRSTMM_DB dataset, for various values of tau. """
@@ -518,8 +557,6 @@ def bound_analysis_er():
     pbar = tqdm(total=n_graphs*n_tau)
     for i,(L,X) in enumerate(get_er(n_graphs)):
         for j,tau in enumerate(tau_all):
-            print(reverse_bound(get_bound_eta_generic, L, X, tau, 1e-32))
-            quit()
             bound_7_all[i,j] = get_bound_eps_generic(L, tau, K)
             bound_8_all[i,j] = get_bound_eta_generic(L, tau, K)
             bound_9_all[i,j] = get_bound_eta_specific(L, X, tau, K)
@@ -762,8 +799,8 @@ def generate_K_tau_err_figure():
 ################################################################################
 
 if __name__=="__main__":
+    min_K_er()
     # get_firstmm_db_dataset()
     # generate_K_tau_err_figure()
-    bound_analysis_er()
     # speed_MSE_analysis_firstmm_db()
     # speed_with_K_er()
