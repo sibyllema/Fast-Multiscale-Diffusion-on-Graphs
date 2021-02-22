@@ -412,7 +412,7 @@ def compute_chebychev_pol(X, L, phi, K):
     # Initialisation
     T[0] = X
     T[1] = (1 / phi) * L @ X - T[0]
-    # Calcul récursif de T[2], T[3], etc.
+    # Recursive computation of T[2], T[3], etc.
     for j in range(2, K + 1):
         T[j] = (2 / phi) * L @ T[j-1] - 2 * T[j-1] - T[j-2]
     return T
@@ -449,7 +449,7 @@ def expm_multiply(L, X, tau, K=None, err=1e-32):
         f = lambda t: compute_chebychev_coeff_all(phi, t, K)
         g = lambda coeff: .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
         h = lambda t: g(f(t))
-        # Yes I know, it' s afor loop.
+        # Yes I know, it' s a for loop.
         # I can't make np.vectorize work >.<
         out = np.empty(tau.shape+X.shape, dtype=X.dtype)
         for index,t in np.ndenumerate(tau):
@@ -570,11 +570,11 @@ def bound_analysis_er():
     pbar = tqdm(total=n_graphs*n_tau)
     for i,(L,X) in enumerate(get_er(n_graphs)):
         for j,tau in enumerate(tau_all):
-            bound_7_all[i,j] = get_bound_eps_generic(L, tau, K)
-            bound_8_all[i,j] = get_bound_eta_generic(L, tau, K)
+            bound_7_all[i,j] = get_bound_eps_generic(L, X, tau, K)
+            bound_8_all[i,j] = get_bound_eta_generic(L, X, tau, K)
             bound_9_all[i,j] = get_bound_eta_specific(L, X, tau, K)
             bound_11_all[i,j] = get_bound_bergamaschi_specific(L, X, tau, K)
-            bound_12_all[i,j] = get_bound_bergamaschi_generic(L, tau, K)
+            bound_12_all[i,j] = get_bound_bergamaschi_generic(L, X, tau, K)
             y_ref = sparse_expm_multiply(-tau*L, X)
             y_apr = expm_multiply(L, X, tau, K)
             eps_all[i,j] = (np.linalg.norm(y_ref-y_apr)/np.linalg.norm(X))**2
@@ -601,9 +601,9 @@ def bound_analysis_er():
 ################################################################################
 
 def speed_for_set_of_tau():
-    logger.debug("### speed_with_K_er() ###")
+    logger.debug("### speed_for_set_of_tau() ###")
     n_graphs = 20
-    n_rep    = 10
+    n_rep    = 3
     tau_log_min = -5.
     tau_log_max = -1.
 
@@ -612,7 +612,7 @@ def speed_for_set_of_tau():
     time_cb = np.zeros((n_rep,n_graphs))
 
     pbar = tqdm(total=n_graphs*n_rep)
-    for i,(L,X) in enumerate(get_er(n_graphs, N=1000, p=.05)):
+    for i,(L,X) in enumerate(get_er(n_graphs, N=2000, p=.05)):
         for j in range(n_rep):
             # Number of tau values to pick, beyind the max & min ones
             rep = j
@@ -632,7 +632,7 @@ def speed_for_set_of_tau():
             time_ar[j,i] += t_stop - t_start
             # Compute our method
             t_start = time()
-            _ = expm_multiply(L, X, tau_all, K=10, err=1e-5)
+            _ = expm_multiply(L, X, tau_all, err=1e-5)
             t_stop = time()
             time_cb[j,i] += t_stop - t_start
 
@@ -810,8 +810,4 @@ def generate_K_tau_err_figure():
 ################################################################################
 
 if __name__=="__main__":
-    # min_K_er()
-    # get_firstmm_db_dataset()
-    # generate_K_tau_err_figure()
-    # speed_MSE_analysis_firstmm_db()
     speed_for_set_of_tau()
