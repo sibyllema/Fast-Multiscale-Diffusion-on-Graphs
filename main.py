@@ -335,22 +335,19 @@ def g(K,C):
     # x = C*C/(K+2) - 2*C + (K+1)*np.log(C) - (K+.5)*np.log(K) + K
     # return np.sqrt(2/np.pi) * np.exp(x)
 
-def get_bound_eps_generic(L, x, tau, K):
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
+def get_bound_eps_generic(phi, x, tau, K):
+    C  = tau*phi/2.
     return g(K,C)**2.
 
-def get_bound_eta_generic(L, x, tau, K):
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
+def get_bound_eta_generic(phi, x, tau, K):
+    C  = tau*phi/2.
     assert(K > C-1)
     return g(K,C)**2. * np.exp(8*C)
 
-def get_bound_eta_specific(L, x, tau, K):
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
-    n   = len(x)
-    a1  = np.sum(x)
+def get_bound_eta_specific(phi, x, tau, K):
+    C  = tau*phi/2.
+    n  = len(x)
+    a1 = np.sum(x)
     assert(a1 != 0.)
     return g(K,C)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
 
@@ -362,40 +359,37 @@ def E(C, K):
     else:
         return (d**K) / (1-d)
 
-def get_bound_bergamaschi_generic(L, x, tau, K):
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
+def get_bound_bergamaschi_generic(phi, x, tau, K):
+    C  = tau*phi/2.
     return (2*E(C, K)*np.exp(4*C))**2.
 
-def get_bound_bergamaschi_specific(L, x, tau, K):
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    C   = tau*phi/2.
-    n   = len(x)
-    a1  = np.sum(x)
+def get_bound_bergamaschi_specific(phi, x, tau, K):
+    C  = tau*phi/2.
+    n  = len(x)
+    a1 = np.sum(x)
     assert(a1 != 0.)
     return 4 * E(C,K)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
 
-def reverse_bound(f, L, x, tau, err):
+def reverse_bound(f, phi, x, tau, err):
     """ Returns the minimal K such that f(L,x,tau,K) <= err. """
     # Starting value: C-1
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
     C   = tau*phi/2.
     K_min = max(10,int(C))
 
     # Step 0: is E(C-1) enough?
-    if f(L,x,tau,K_min) <= err:
+    if f(phi,x,tau,K_min) <= err:
         return K_min
 
     # Step 1: searches any K such that f(*args) <= err.
     K_max = 2 * K_min
-    while f(L,x,tau,K_max) > err:
+    while f(phi,x,tau,K_max) > err:
         K_min = K_max
         K_max = 2 * K_min
 
     # Step 2: now we have f(...,K_max) <= err < f(...,K_min). Dichotomy!
     while K_max > 1+K_min:
         K_int = (K_max + K_min) // 2
-        if f(L,x,tau,K_int) <= err:
+        if f(phi,x,tau,K_int) <= err:
             K_max = K_int
         else:
             K_min = K_int
@@ -428,7 +422,7 @@ def expm_multiply(L, X, tau, K=None, err=1e-32):
     # Check if tau is a single value, a list or a ndarray.
     if isinstance(tau, (float, int)):
         # Get minimal K to go below the desired error
-        if K is None: K = reverse_bound(get_bound_eta_specific, L, X, tau, err)
+        if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
         # Compute Chebychev polynomials
         poly = compute_chebychev_pol(X, L, phi, K)
         # Compute Chebychev coefficients
@@ -438,13 +432,13 @@ def expm_multiply(L, X, tau, K=None, err=1e-32):
         return Y
     elif isinstance(tau, list):
         # Same as earlier, but iterate on a list.
-        if K is None: K = reverse_bound(get_bound_eta_specific, L, X, max(tau), err)
+        if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, max(tau), err)
         poly = compute_chebychev_pol(X, L, phi, K)
         coeff_list = [compute_chebychev_coeff_all(phi, t, K) for t in tau]
         Y_list = [.5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T for coeff in coeff_list]
         return Y_list
     elif isinstance(tau, np.ndarray):
-        if K is None: K = reverse_bound(get_bound_eta_specific, L, X, np.amax(tau), err)
+        if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, np.amax(tau), err)
         poly = compute_chebychev_pol(X, L, phi, K)
         f = lambda t: compute_chebychev_coeff_all(phi, t, K)
         g = lambda coeff: .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
@@ -505,6 +499,69 @@ def get_firstmm_db(k):
     A_all = data_dict["graph_structures"][p[:k]]
     L_all = [laplacian(A) for A in A_all]
     return zip(L_all, X_all)
+
+################################################################################
+### How much time do the individual steps take #################################
+################################################################################
+
+def time_steps():
+    n_graphs = 10
+    n_tau    = 10
+    tau_all  = 10**np.linspace(-2.,0.,num=n_tau)
+    err      = 1e-5
+
+    time_eig  = np.empty((n_tau,n_graphs), dtype=np.float)
+    time_K    = np.empty((n_tau,n_graphs), dtype=np.float)
+    time_poly = np.empty((n_tau,n_graphs), dtype=np.float)
+    time_coef = np.empty((n_tau,n_graphs), dtype=np.float)
+    time_comb = np.empty((n_tau,n_graphs), dtype=np.float)
+
+    pbar = tqdm(total=n_graphs*n_tau)
+    for i,(L,X) in enumerate(get_er(n_graphs, N=1000)):
+        for j,tau in enumerate(tau_all):
+            # Largest eigenvalue computation
+            t_start = time()
+            phi     = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+            t_stop  = time()
+            time_eig[j,i] = t_stop - t_start
+
+            # Compute required K
+            t_start = time()
+            K       = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
+            t_stop  = time()
+            time_K[j,i] = t_stop - t_start
+
+            # Compute the polynomials
+            t_start = time()
+            poly    = compute_chebychev_pol(X, L, phi, K)
+            t_stop  = time()
+            time_poly[j,i] = t_stop - t_start
+
+            # Compute the coefficients
+            t_start = time()
+            coeff   = compute_chebychev_coeff_all(phi, tau, K)
+            t_stop  = time()
+            time_coef[j,i] = t_stop - t_start
+
+            # Combine polynomials & coefficients
+            t_start = time()
+            Y       = .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
+            t_stop  = time()
+            time_comb[j,i] = t_stop - t_start
+
+            pbar.update(1)
+    pbar.close()
+
+    plot_fancy_error_bar(tau_all, time_eig,  label="First eigenvalue")
+    plot_fancy_error_bar(tau_all, time_K,    label="Order K")
+    plot_fancy_error_bar(tau_all, time_poly, label="Polynomials")
+    plot_fancy_error_bar(tau_all, time_coef, label="Coefficients")
+    plot_fancy_error_bar(tau_all, time_comb, label="Combination")
+
+    plt.xscale("log")
+    plt.grid()
+    plt.legend()
+    plt.show()
 
 ################################################################################
 ### Theoretical bound analysis #################################################
@@ -603,7 +660,7 @@ def bound_analysis_er():
 def speed_for_set_of_tau():
     logger.debug("### speed_for_set_of_tau() ###")
     n_graphs = 20
-    n_rep    = 3
+    n_rep    = 10
     tau_log_min = -5.
     tau_log_max = -1.
 
@@ -810,4 +867,5 @@ def generate_K_tau_err_figure():
 ################################################################################
 
 if __name__=="__main__":
-    speed_for_set_of_tau()
+    time_steps()
+    # speed_for_set_of_tau()
