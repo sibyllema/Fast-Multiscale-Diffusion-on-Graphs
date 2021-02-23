@@ -633,53 +633,6 @@ def min_K_er():
     plt.legend()
     plt.show()
 
-def bound_analysis_er():
-    """ Display the average MSE and bounds for various graphs from the
-        FIRSTMM_DB dataset, for various values of tau. """
-    logger.debug("bound_analysis_er()")
-
-    n_graphs = 10
-    n_tau    = 20
-    tau_all  = 10**np.linspace(-2.,0.,num=n_tau)
-    K        = 10
-    bound_7_all = np.empty( (n_graphs,n_tau), dtype=np.float )
-    bound_8_all = np.empty( (n_graphs,n_tau), dtype=np.float )
-    bound_9_all = np.empty( (n_graphs,n_tau), dtype=np.float )
-    bound_11_all = np.empty( (n_graphs,n_tau), dtype=np.float )
-    bound_12_all = np.empty( (n_graphs,n_tau), dtype=np.float )
-    eps_all     = np.empty( (n_graphs,n_tau), dtype=np.float )
-    eta_all     = np.empty( (n_graphs,n_tau), dtype=np.float )
-
-    # Compute bounds and errors
-    pbar = tqdm(total=n_graphs*n_tau)
-    for i,(L,X) in enumerate(get_er(n_graphs)):
-        for j,tau in enumerate(tau_all):
-            bound_7_all[i,j] = get_bound_eps_generic(L, X, tau, K)
-            bound_8_all[i,j] = get_bound_eta_generic(L, X, tau, K)
-            bound_9_all[i,j] = get_bound_eta_specific(L, X, tau, K)
-            bound_11_all[i,j] = get_bound_bergamaschi_specific(L, X, tau, K)
-            bound_12_all[i,j] = get_bound_bergamaschi_generic(L, X, tau, K)
-            y_ref = sparse_expm_multiply(-tau*L, X)
-            y_apr = expm_multiply(L, X, tau, K)
-            eps_all[i,j] = (np.linalg.norm(y_ref-y_apr)/np.linalg.norm(X))**2
-            eta_all[i,j] = (np.linalg.norm(y_ref-y_apr)/np.linalg.norm(y_ref))**2
-            pbar.update(1)
-    pbar.close()
-
-    # Plot all this
-    plot_fancy_error_bar(tau_all, bound_8_all.T, label=f"Bound V.8 (generic)", linestyle="dashed")
-    plot_fancy_error_bar(tau_all, bound_9_all.T, label=f"Bound V.9 (specific)", linestyle="dashed")
-    plot_fancy_error_bar(tau_all, bound_12_all.T, label=f"Bergamaschi's generic", linestyle="dotted")
-    plot_fancy_error_bar(tau_all, bound_11_all.T, label=f"Bergamaschi's specific", linestyle="dotted")
-    plot_fancy_error_bar(tau_all, eta_all.T, label=rf"$\eta_{ {K} }$", color="black")
-    plt.xlabel(r"$\tau$")
-    plt.ylabel("Error")
-    plt.xscale("log")
-    plt.yscale("log")
-    plt.grid()
-    plt.legend()
-    plt.show()
-
 ################################################################################
 ### Speed // ER // Increasing set of tau #######################################
 ################################################################################
@@ -894,6 +847,6 @@ def generate_K_tau_err_figure():
 ################################################################################
 
 if __name__=="__main__":
-    min_K_er()
+    # min_K_er()
     # time_steps()
     # speed_for_set_of_tau()
