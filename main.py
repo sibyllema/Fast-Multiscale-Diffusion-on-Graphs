@@ -374,7 +374,7 @@ def reverse_bound(f, phi, x, tau, err):
     """ Returns the minimal K such that f(L,x,tau,K) <= err. """
     # Starting value: C-1
     C   = tau*phi/2.
-    K_min = max(10,int(C))
+    K_min = max(1,int(C))
 
     # Step 0: is E(C-1) enough?
     if f(phi,x,tau,K_min) <= err:
@@ -394,6 +394,28 @@ def reverse_bound(f, phi, x, tau, err):
         else:
             K_min = K_int
     return K_max
+
+def reverse_eps_K(L, x, tau, err):
+    """ Returns the minimum K required to achieve a given error (relative to the
+        input). """
+    y_ref = sparse_expm_multiply(-tau*L, x)
+    K = 1
+    def get_eps(a,b):
+        return (np.linalg.norm(a-b)/np.linalg.norm(x))**2.
+    while get_eps(y_ref, expm_multiply(L, x, tau, K=K)) > err:
+        K += 1
+    return K
+
+def reverse_eta_K(L, x, tau, err):
+    """ Returns the minimum K required to achieve a given error (relative to the
+        input). """
+    y_ref = sparse_expm_multiply(-tau*L, x)
+    K = 1
+    def get_eta(a,b):
+        return (np.linalg.norm(a-b)/np.linalg.norm(a))**2.
+    while get_eta(y_ref, expm_multiply(L, x, tau, K=K)) > err:
+        K += 1
+    return K
 
 ################################################################################
 ### Our method to compute the diffusion ########################################
@@ -572,33 +594,38 @@ def min_K_er():
     logger.debug("### min_K_er() ###")
     n_graphs = 10
     n_val    = 20
-    # tau_all  = 10**np.linspace(-2.,2.,num=n_val)
-    tau      = .1
-    err_all  = 10**np.linspace(-32, -3, num=n_val)
-    # err      = 1e-5
+    tau_all  = 10**np.linspace(-2.,2.,num=n_val)
+    # tau      = 1.
+    # err_all  = 10**np.linspace(-16, -3, num=n_val)
+    err      = 1e-5
     bound_8_all  = np.empty( (n_graphs,n_val), dtype=np.float )
     bound_9_all  = np.empty( (n_graphs,n_val), dtype=np.float )
     bound_11_all = np.empty( (n_graphs,n_val), dtype=np.float )
     bound_12_all = np.empty( (n_graphs,n_val), dtype=np.float )
+    real_K_all   = np.empty( (n_graphs,n_val), dtype=np.float )
 
     logger.debug("Computing minimum K")
     pbar = tqdm(total=n_graphs*n_val)
     for i,(L,X) in enumerate(get_er(n_graphs)):
-        # for j,tau in enumerate(tau_all):
-        for j,err in enumerate(err_all):
-            bound_8_all[i,j]  = reverse_bound(get_bound_eta_generic, L, X, tau, err)
-            bound_9_all[i,j]  = reverse_bound(get_bound_eta_specific, L, X, tau, err)
-            bound_11_all[i,j] = reverse_bound(get_bound_bergamaschi_specific, L, X, tau, err)
-            bound_12_all[i,j] = reverse_bound(get_bound_bergamaschi_generic, L, X, tau, err)
+        for j,tau in enumerate(tau_all):
+        # for j,err in enumerate(err_all):
+            phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+            bound_8_all[i,j]  = reverse_bound(get_bound_eta_generic, phi, X, tau, err)
+            bound_9_all[i,j]  = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
+            bound_11_all[i,j] = reverse_bound(get_bound_bergamaschi_specific, phi, X, tau, err)
+            bound_12_all[i,j] = reverse_bound(get_bound_bergamaschi_generic, phi, X, tau, err)
+            real_K_all[i,j]   = reverse_eta_K(L, X, tau, err)
             pbar.update(1)
     pbar.close()
 
     # Plot all this
-    plot_fancy_error_bar(err_all, bound_8_all.T, label=f"With bound V.8 (generic)", linestyle="dashed")
-    plot_fancy_error_bar(err_all, bound_9_all.T, label=f"With bound V.9 (specific)", linestyle="dashed")
-    plot_fancy_error_bar(err_all, bound_12_all.T, label=f"With Bergamaschi's generic", linestyle="dotted")
-    plot_fancy_error_bar(err_all, bound_11_all.T, label=f"With Bergamaschi's specific", linestyle="dotted")
-    plt.xlabel(r"Desired $\eta$")
+    plot_fancy_error_bar(tau_all, bound_8_all.T, label=f"With bound V.8 (generic)", linestyle="dashed")
+    plot_fancy_error_bar(tau_all, bound_9_all.T, label=f"With bound V.9 (specific)", linestyle="dashed")
+    plot_fancy_error_bar(tau_all, bound_12_all.T, label=f"With Bergamaschi's generic", linestyle="dotted")
+    plot_fancy_error_bar(tau_all, bound_11_all.T, label=f"With Bergamaschi's specific", linestyle="dotted")
+    plot_fancy_error_bar(tau_all, real_K_all.T, label=f"Real required K", color="black")
+    # plt.xlabel(r"Desired $\eta$")
+    plt.xlabel(r"$\tau$")
     plt.ylabel("K")
     plt.xscale("log")
     plt.yscale("log")
@@ -659,17 +686,17 @@ def bound_analysis_er():
 
 def speed_for_set_of_tau():
     logger.debug("### speed_for_set_of_tau() ###")
-    n_graphs = 20
-    n_rep    = 10
+    n_graphs = 10
+    n_rep    = 6
     tau_log_min = -5.
-    tau_log_max = -1.
+    tau_log_max = 0.
 
     time_sp = np.zeros((n_rep,n_graphs))
     time_ar = np.zeros((n_rep,n_graphs))
     time_cb = np.zeros((n_rep,n_graphs))
 
     pbar = tqdm(total=n_graphs*n_rep)
-    for i,(L,X) in enumerate(get_er(n_graphs, N=2000, p=.05)):
+    for i,(L,X) in enumerate(get_er(n_graphs, N=10000, p=.05)):
         for j in range(n_rep):
             # Number of tau values to pick, beyind the max & min ones
             rep = j
@@ -867,5 +894,6 @@ def generate_K_tau_err_figure():
 ################################################################################
 
 if __name__=="__main__":
-    time_steps()
+    min_K_er()
+    # time_steps()
     # speed_for_set_of_tau()
