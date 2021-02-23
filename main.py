@@ -639,17 +639,17 @@ def min_K_er():
 
 def speed_for_set_of_tau():
     logger.debug("### speed_for_set_of_tau() ###")
-    n_graphs = 10
+    n_graphs = 100
     n_rep    = 6
     tau_log_min = -5.
-    tau_log_max = 0.
+    tau_log_max = -2.
 
     time_sp = np.zeros((n_rep,n_graphs))
     time_ar = np.zeros((n_rep,n_graphs))
     time_cb = np.zeros((n_rep,n_graphs))
 
     pbar = tqdm(total=n_graphs*n_rep)
-    for i,(L,X) in enumerate(get_er(n_graphs, N=10000, p=.05)):
+    for i,(L,X) in enumerate(get_er(n_graphs, N=400, p=.05)):
         for j in range(n_rep):
             # Number of tau values to pick, beyind the max & min ones
             rep = j
@@ -691,24 +691,20 @@ def speed_for_set_of_tau():
 ### Speed and precision with tau increasing ####################################
 ################################################################################
 
-def speed_MSE_analysis_firstmm_db():
+def speed_analysis_firstmm_db():
     # Experiment parameters
-    n_graphs  = 10 # Number of graphs to average the performance over
-    n_tau_val = 20 # Number of tau values
-    n_runs    = 50 # Number of runs to average performances over
-    tau_list  = 10**np.linspace(-5.,-1., num=n_tau_val)
+    n_graphs  = 40 # Number of graphs to average the performance over
+    n_runs    = 10 # Number of runs to average performances over
+    n_tau_val = 10 # Number of tau values
+    tau_list  = 10**np.linspace(-3.,-1., num=n_tau_val)
 
     # How much time does each method takes
-    time_sp = np.zeros((n_tau_val,n_runs,n_graphs))
-    time_ar = np.zeros((n_tau_val,n_runs,n_graphs))
-    time_cb = np.zeros((n_tau_val,n_runs,n_graphs))
-
-    # Precision of the methods wrt to NumPy's (which we assum is correct up to arithmetic precision)
-    err_ar = np.zeros((n_tau_val,n_runs,n_graphs))
-    err_cb = np.zeros((n_tau_val,n_runs,n_graphs))
+    time_sp = np.zeros((n_graphs,n_runs))
+    time_ar = np.zeros((n_graphs,n_runs))
+    time_cb = np.zeros((n_graphs,n_runs))
 
     # Loop over graphs
-    pbar = tqdm(total=n_graphs*n_tau_val*n_runs)
+    pbar = tqdm(total=n_graphs*n_runs)
     for i,(L,_) in enumerate(get_firstmm_db(n_graphs)):
         # Loop over runs
         for j in range(n_runs):
@@ -717,66 +713,43 @@ def speed_MSE_analysis_firstmm_db():
             idx = np.random.default_rng().integers(low=0,high=N)
             X = np.zeros((N,1), dtype=np.float)
             X[idx] = 1.
-            # Pre-compute the Chebychev polynomials, and spread its
-            # computation time over all values of tau.
+
+            # Time Scipy's method
             t_start = time()
+            for tau in tau_list:
+                _ = sparse_expm_multiply(-tau*L, X)
             t_stop = time()
-            time_cb[:,j,i] += (t_stop - t_start) / n_tau_val
-            for k,tau in enumerate(tau_list):
-                # Compute diffusion with scipy's method
-                t_start = time()
-                Y_sp = sparse_expm_multiply(-tau*L, X)
-                t_stop = time()
-                time_sp[k,j,i] += t_stop - t_start
+            time_sp[i,j] += t_stop - t_start
 
-                # Compute diffusion with ART's method
-                t_start = time()
-                Y_ar = art_expm(L, X, tau, toler=1e-3, m=20)
-                t_stop = time()
-                time_ar[k,j,i] += t_stop - t_start
+            # Time ART's method
+            t_start = time()
+            for tau in tau_list:
+                _ = art_expm(L, X, tau, toler=1e-3, m=60)
+            t_stop = time()
+            time_ar[i,j] += t_stop - t_start
 
-                # Compute diffusion with our method
-                t_start = time()
-                f_cb = get_diffusion_fun(L, X, K=10)
-                Y_cb = f_cb(tau)
-                t_stop = time()
-                time_cb[k,j,i] += t_stop - t_start
+            # Time our method
+            t_start = time()
+            _ = expm_multiply(L, X, tau_list, err=1e-5)
+            t_stop = time()
+            time_cb[i,j] += t_stop - t_start
 
-                # Compute and store MSE
-                err_ar[k,j,i] = (np.linalg.norm(Y_sp-Y_ar)/np.linalg.norm(Y_sp))**2
-                err_cb[k,j,i] = (np.linalg.norm(Y_sp-Y_cb)/np.linalg.norm(Y_sp))**2
-
-                pbar.update(1)
+            pbar.update(1)
     pbar.close()
 
-    # Average times/MSE over graphs
-    time_sp = np.average(time_sp, axis=-1)
-    time_ar = np.average(time_ar, axis=-1)
-    time_cb = np.average(time_cb, axis=-1)
-    err_ar = np.average(err_ar, axis=-1)
-    err_cb = np.average(err_cb, axis=-1)
+    # # Average timesover runs
+    # time_sp = np.average(time_sp, axis=-1)
+    # time_ar = np.average(time_ar, axis=-1)
+    # time_cb = np.average(time_cb, axis=-1)
 
-    # Prepare plots
-    f, ax0 = plt.subplots(nrows=1, ncols=1)
-    # ax1 = plt.twinx()
-
-    # Plot computation times wrt tau
-    plt0sp = plot_fancy_error_bar(tau_list, time_sp, ax=ax0, color="red",   linestyle="solid", label="(time) Scipy")
-    plt0cb = plot_fancy_error_bar(tau_list, time_cb, ax=ax0, color="blue",  linestyle="solid", label="(time) Chebychev")
-    plt0ar = plot_fancy_error_bar(tau_list, time_ar, ax=ax0, color="green", linestyle="solid", label="(time) ART (Krylov)")
-
-    # # Plot MSE wrt tau
-    # plt1cb = plot_fancy_error_bar(tau_list, err_cb, ax=ax1, color="blue",  linestyle="dashed", label="(error) Chebychev")
-    # plt1ar = plot_fancy_error_bar(tau_list, err_ar, ax=ax1, color="green", linestyle="dashed", label="(error) ART (Krylov)")
+    plt.boxplot(
+        [np.ravel(time_sp), np.ravel(time_ar), np.ravel(time_cb)],
+        vert=False,
+        whis=(10,90),
+        labels=["Scipy", "ART (Krylov)", "Chebyshev"])
 
     # Configure plot
-    plt.xlabel(r"$\tau$")
-    plt.xscale("log")
-    ax0.set_ylabel("Time (s)")
-    # ax1.set_ylabel("MSE")
-    # ax1.set_yscale("log")
-    plt_all = [plt0sp, plt0cb, plt0ar]
-    plt.legend(plt_all, [plt_.get_label() for plt_ in plt_all])
+    plt.xlabel(r"Time (s)")
     plt.grid()
     plt.show()
 
@@ -848,5 +821,6 @@ def generate_K_tau_err_figure():
 
 if __name__=="__main__":
     # min_K_er()
-    # time_steps()
     # speed_for_set_of_tau()
+    speed_analysis_firstmm_db()
+    # time_steps()
