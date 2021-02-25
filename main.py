@@ -38,7 +38,7 @@ logger.setLevel(logging.DEBUG) # Max level of debug info. to display
 ### Utility functions ##########################################################
 ################################################################################
 
-def plot_fancy_error_bar(x, y, ax=None, type="median_quartiles", label=None, **kwargs):
+def plot_fancy_error_bar(x, y, ax=None, type="median_quartiles", **kwargs):
     """ Plot data with errorbars and semi-transparent error region.
 
     Arguments:
@@ -63,12 +63,14 @@ def plot_fancy_error_bar(x, y, ax=None, type="median_quartiles", label=None, **k
         y_up        = y_center + y_std
         y_down      = y_center - y_std
 
+    fill_color = kwargs["color"] if "color" in kwargs else None
+
     if ax is None:
-        plot_ = plt.errorbar(x, y_center, (y_center - y_down, y_up - y_center), label=label, **kwargs)
-        plt.fill_between(x, y_down, y_up, alpha=.3, **kwargs)
+        plot_ = plt.errorbar(x, y_center, (y_center - y_down, y_up - y_center), **kwargs)
+        plt.fill_between(x, y_down, y_up, alpha=.3, color=fill_color)
     else:
-        plot_ = ax.errorbar(x, y_center, (y_center - y_down, y_up - y_center), label=label, **kwargs)
-        ax.fill_between(x, y_down, y_up, alpha=.3, **kwargs)
+        plot_ = ax.errorbar(x, y_center, (y_center - y_down, y_up - y_center), **kwargs)
+        ax.fill_between(x, y_down, y_up, alpha=.3, color=fill_color)
     return plot_
 
 def get_firstmm_db_dataset():
@@ -593,17 +595,17 @@ def time_steps():
 def min_K_er():
     """ Display the minimum K to achieve a desired accuracy against tau. """
     logger.debug("### min_K_er() ###")
-    n_graphs = 10
-    n_val    = 20
+    n_graphs = 25
+    n_val    = 25
     tau_all  = 10**np.linspace(-2.,2.,num=n_val)
     # tau      = 1.
     # err_all  = 10**np.linspace(-16, -3, num=n_val)
     err      = 1e-5
-    bound_8_all  = np.empty( (n_graphs,n_val), dtype=np.float )
-    bound_9_all  = np.empty( (n_graphs,n_val), dtype=np.float )
-    bound_11_all = np.empty( (n_graphs,n_val), dtype=np.float )
-    bound_12_all = np.empty( (n_graphs,n_val), dtype=np.float )
-    real_K_all   = np.empty( (n_graphs,n_val), dtype=np.float )
+    bound_V8_all  = np.empty( (n_graphs,n_val), dtype=np.float )
+    bound_V9_all  = np.empty( (n_graphs,n_val), dtype=np.float )
+    bound_VI1_all = np.empty( (n_graphs,n_val), dtype=np.float )
+    bound_VI2_all = np.empty( (n_graphs,n_val), dtype=np.float )
+    real_K_all    = np.empty( (n_graphs,n_val), dtype=np.float )
 
     logger.debug("Computing minimum K")
     pbar = tqdm(total=n_graphs*n_val)
@@ -611,19 +613,19 @@ def min_K_er():
         for j,tau in enumerate(tau_all):
         # for j,err in enumerate(err_all):
             phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-            bound_8_all[i,j]  = reverse_bound(get_bound_eta_generic, phi, X, tau, err)
-            bound_9_all[i,j]  = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
-            bound_11_all[i,j] = reverse_bound(get_bound_bergamaschi_specific, phi, X, tau, err)
-            bound_12_all[i,j] = reverse_bound(get_bound_bergamaschi_generic, phi, X, tau, err)
-            real_K_all[i,j]   = reverse_eta_K(L, X, tau, err)
+            bound_V8_all[i,j]  = reverse_bound(get_bound_eta_generic, phi, X, tau, err)
+            bound_V9_all[i,j]  = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
+            bound_VI1_all[i,j] = reverse_bound(get_bound_bergamaschi_specific, phi, X, tau, err)
+            bound_VI2_all[i,j] = reverse_bound(get_bound_bergamaschi_generic, phi, X, tau, err)
+            real_K_all[i,j]    = reverse_eta_K(L, X, tau, err)
             pbar.update(1)
     pbar.close()
 
     # Plot all this
-    plot_fancy_error_bar(tau_all, bound_8_all.T, label=f"With bound V.8 (generic)", linestyle="dashed")
-    plot_fancy_error_bar(tau_all, bound_9_all.T, label=f"With bound V.9 (specific)", linestyle="dashed")
-    plot_fancy_error_bar(tau_all, bound_12_all.T, label=f"With Bergamaschi's generic", linestyle="dotted")
-    plot_fancy_error_bar(tau_all, bound_11_all.T, label=f"With Bergamaschi's specific", linestyle="dotted")
+    plot_fancy_error_bar(tau_all, bound_V8_all.T, label=f"Bound V.8 (our, generic)", linestyle="dashed", marker="o", color="blue")
+    plot_fancy_error_bar(tau_all, bound_V9_all.T, label=f"Bound V.9 (our, specific)", linestyle="dashed", marker=".", color="green")
+    plot_fancy_error_bar(tau_all, bound_VI1_all.T, label=f"Bound VI.1 (specific)", linestyle="dotted", marker="x", color="red")
+    plot_fancy_error_bar(tau_all, bound_VI2_all.T, label=f"Bound VI.2 (generic)", linestyle="dotted", marker="+", color="orange")
     plot_fancy_error_bar(tau_all, real_K_all.T, label=f"Real required K", color="black")
     # plt.xlabel(r"Desired $\eta$")
     plt.xlabel(r"$\tau$")
@@ -821,7 +823,7 @@ def generate_K_tau_err_figure():
 ################################################################################
 
 if __name__=="__main__":
-    # min_K_er()
+    min_K_er()
     # speed_for_set_of_tau()
-    speed_analysis_firstmm_db()
+    # speed_analysis_firstmm_db()
     # time_steps()
