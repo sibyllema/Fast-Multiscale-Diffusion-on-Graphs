@@ -595,7 +595,7 @@ def time_steps():
 def min_K_er():
     """ Display the minimum K to achieve a desired accuracy against tau. """
     logger.debug("### min_K_er() ###")
-    n_graphs = 25
+    n_graphs = 40
     n_val    = 25
     tau_all  = 10**np.linspace(-2.,2.,num=n_val)
     # tau      = 1.
@@ -604,7 +604,7 @@ def min_K_er():
     bound_V8_all  = np.empty( (n_graphs,n_val), dtype=np.float )
     bound_V9_all  = np.empty( (n_graphs,n_val), dtype=np.float )
     bound_VI1_all = np.empty( (n_graphs,n_val), dtype=np.float )
-    bound_VI2_all = np.empty( (n_graphs,n_val), dtype=np.float )
+    bound_VI3_all = np.empty( (n_graphs,n_val), dtype=np.float )
     real_K_all    = np.empty( (n_graphs,n_val), dtype=np.float )
 
     logger.debug("Computing minimum K")
@@ -616,7 +616,7 @@ def min_K_er():
             bound_V8_all[i,j]  = reverse_bound(get_bound_eta_generic, phi, X, tau, err)
             bound_V9_all[i,j]  = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
             bound_VI1_all[i,j] = reverse_bound(get_bound_bergamaschi_specific, phi, X, tau, err)
-            bound_VI2_all[i,j] = reverse_bound(get_bound_bergamaschi_generic, phi, X, tau, err)
+            bound_VI3_all[i,j] = reverse_bound(get_bound_bergamaschi_generic, phi, X, tau, err)
             real_K_all[i,j]    = reverse_eta_K(L, X, tau, err)
             pbar.update(1)
     pbar.close()
@@ -625,7 +625,7 @@ def min_K_er():
     plot_fancy_error_bar(tau_all, bound_V8_all.T, label=f"Bound V.8 (our, generic)", linestyle="dashed", marker="o", color="blue")
     plot_fancy_error_bar(tau_all, bound_V9_all.T, label=f"Bound V.9 (our, specific)", linestyle="dashed", marker=".", color="green")
     plot_fancy_error_bar(tau_all, bound_VI1_all.T, label=f"Bound VI.1 (specific)", linestyle="dotted", marker="x", color="red")
-    plot_fancy_error_bar(tau_all, bound_VI2_all.T, label=f"Bound VI.2 (generic)", linestyle="dotted", marker="+", color="orange")
+    plot_fancy_error_bar(tau_all, bound_VI3_all.T, label=f"Bound VI.3 (generic)", linestyle="dotted", marker="+", color="orange")
     plot_fancy_error_bar(tau_all, real_K_all.T, label=f"Real required K", color="black")
     # plt.xlabel(r"Desired $\eta$")
     plt.xlabel(r"$\tau$")
