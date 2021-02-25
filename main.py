@@ -93,6 +93,7 @@ def parse_dortmund_format(path, dataset_name, clean_data=True):
     """ Parser for attributed graphs from the Dortmund gaph collection (see:
         https://chrsmrrs.github.io/datasets/docs/datasets/)."""
     logger.debug("### parse_dortmund_format() ###")
+    logger.debug(f"Loading {dataset_name} dataset.")
 
     logger.debug("Reading node->graph mapping")
     with open(path + dataset_name + "_graph_indicator.txt") as f:
@@ -514,7 +515,7 @@ def get_er(k, N=200, p=.05, gamma=1.):
 
 def get_firstmm_db(k):
     """ Iterator. Yields k attributed graphs from the FIRSTMM_DB dataset. """
-    data_dict = parse_dortmund_format(f"data/FIRSTMM_DB/", "FIRSTMM_DB")
+    data_dict = parse_dortmund_format(f"data/FIRSTMM_DB/", "FIRSTMM_DB", clean_data=False)
     N = len(data_dict["node_attributes"])
     p = np.random.permutation(N)
     X_all = data_dict["node_attributes"][p[:k]]
