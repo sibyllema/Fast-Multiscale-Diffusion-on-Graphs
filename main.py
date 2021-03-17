@@ -354,7 +354,7 @@ def get_bound_eta_specific(phi, x, tau, K):
     assert(a1 != 0.)
     return g(K,C)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
 
-def E(C, K):
+def E(K, C):
     b = 2 / (1 + np.sqrt(5))
     d = np.exp(b) / (2 + np.sqrt(5))
     if K <= 4*C:
@@ -364,14 +364,14 @@ def E(C, K):
 
 def get_bound_bergamaschi_generic(phi, x, tau, K):
     C  = tau*phi/2.
-    return (2*E(C, K)*np.exp(4*C))**2.
+    return (2*E(K, C)*np.exp(4*C))**2.
 
 def get_bound_bergamaschi_specific(phi, x, tau, K):
     C  = tau*phi/2.
     n  = len(x)
     a1 = np.sum(x)
     assert(a1 != 0.)
-    return 4 * E(C,K)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
+    return 4 * E(K,C)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
 
 def reverse_bound(f, phi, x, tau, err):
     """ Returns the minimal K such that f(L,x,tau,K) <= err. """
@@ -607,12 +607,22 @@ def min_K_er():
     bound_VI3_all = np.empty( (n_graphs,n_val), dtype=np.float )
     real_K_all    = np.empty( (n_graphs,n_val), dtype=np.float )
 
+    # avg_lmax = 0.
+    # avg_tlim = 0.
+
     logger.debug("Computing minimum K")
     pbar = tqdm(total=n_graphs*n_val)
     for i,(L,X) in enumerate(get_er(n_graphs)):
+        # Collect statistics
+        lmax   = eigsh(L, k=1, return_eigenvectors=False)[0]
+        phi    = lmax / 2
+        # n      = len(X)
+        # x_norm = np.linalg.norm(X)
+        # a1     = np.abs(np.sum(X))
+        # avg_lmax += lmax
+        # avg_tlim += 1/(2*lmax) * np.log(n * x_norm**2. / a1**2.)
         for j,tau in enumerate(tau_all):
         # for j,err in enumerate(err_all):
-            phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
             bound_V8_all[i,j]  = reverse_bound(get_bound_eta_generic, phi, X, tau, err)
             bound_V9_all[i,j]  = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
             bound_VI1_all[i,j] = reverse_bound(get_bound_bergamaschi_specific, phi, X, tau, err)
@@ -621,13 +631,21 @@ def min_K_er():
             pbar.update(1)
     pbar.close()
 
+    # avg_lmax /= n_graphs
+    # avg_tlim /= n_graphs
+
     # Plot all this
-    plot_fancy_error_bar(tau_all, bound_V8_all.T, label=f"Bound V.8 (our, generic)", linestyle="dashed", marker="o", color="blue")
-    plot_fancy_error_bar(tau_all, bound_V9_all.T, label=f"Bound V.9 (our, specific)", linestyle="dashed", marker=".", color="green")
-    plot_fancy_error_bar(tau_all, bound_VI1_all.T, label=f"Bound VI.1 (specific)", linestyle="dotted", marker="x", color="red")
-    plot_fancy_error_bar(tau_all, bound_VI3_all.T, label=f"Bound VI.3 (generic)", linestyle="dotted", marker="+", color="orange")
+    plot_fancy_error_bar(tau_all, bound_V8_all.T, label=f"Bound IV.8 (our, generic)", linestyle="solid", marker="o", color="blue")
+    plot_fancy_error_bar(tau_all, bound_V9_all.T, label=f"Bound IV.9 (our, specific)", linestyle="solid", marker="x", color="blue")
+    plot_fancy_error_bar(tau_all, bound_VI1_all.T, label=f"Bound V.1 (Bergamaschi's, specific)", linestyle="dotted", marker="x", color="red")
+    plot_fancy_error_bar(tau_all, bound_VI3_all.T, label=f"Bound V.3 (Bergamaschi's, generic)", linestyle="dotted", marker="o", color="red")
     plot_fancy_error_bar(tau_all, real_K_all.T, label=f"Real required K", color="black")
-    # plt.xlabel(r"Desired $\eta$")
+
+    # # Plot relevant tau values
+    # plt.plot([tau_all[0],tau_all[-1]],[tau_all[0]*avg_lmax,tau_all[-1]*avg_lmax],linestyle="dotted", color="black", label="Bergamaschi's limit")
+    # plt.vlines([avg_tlim], ymin=1, ymax=100, linestyle="dashed", color="black", label=r"$\tau_{lim}$")
+
+    # Configure and display plot
     plt.xlabel(r"$\tau$")
     plt.ylabel("K")
     plt.xscale("log")
