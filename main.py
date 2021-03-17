@@ -185,15 +185,15 @@ def parse_dortmund_format(path, dataset_name, clean_data=True):
             X = []
             for i,line in enumerate(f):
                 x = line.split(',')
-                x = np.array(x, dtype=np.float)
+                x = np.array(x, dtype=np.float64)
                 try:
                     X[graph_indicator[i]].append(x)
                 except:
                     X.append([x])
             if same_size:
-                X = np.array(X, dtype=np.float).reshape( (n_graphs, graph_sizes[0], -1) )
+                X = np.array(X, dtype=np.float64).reshape( (n_graphs, graph_sizes[0], -1) )
             else:
-                X = np.array([np.array(x_list, dtype=np.float) for x_list in X], dtype=np.object)
+                X = np.array([np.array(x_list, dtype=np.float64) for x_list in X], dtype=np.object)
                 # X = np.array(X, dtype=object)
         # Clean data?
         if clean_data:
@@ -272,7 +272,7 @@ def art_expm(A, v, t, toler=1e05, m=10, verbose=False):
             e1       = np.zeros((j+1,1)); e1[0]  = 1
             ej       = np.zeros((j+1,1)); ej[-1] = 1
             s        =  [t*i/6 for i in range(6)]
-            beta_j   = np.empty( (len(s),), dtype=np.float )
+            beta_j   = np.empty( (len(s),), dtype=np.float64 )
             for q in range(len(s)):
                 u         = expm(-s[q] * H[0:j+1,0:j+1]) @ e1 # TODO: faster
                 beta_j[q] = -H[j+1,j] * (ej.T @ u)
@@ -427,7 +427,7 @@ def reverse_eta_K(L, x, tau, err):
 def compute_chebychev_pol(X, L, phi, K):
     """ Compute the Tk(L).X, where Tk are the K+1 first Chebychev polynoms. """
     N, d = X.shape
-    T = np.empty((K + 1, N, d), dtype=np.float)
+    T = np.empty((K + 1, N, d), dtype=np.float64)
     # Initialisation
     T[0] = X
     T[1] = (1 / phi) * L @ X - T[0]
@@ -504,7 +504,7 @@ def sample_er(N, p, gamma):
     # top triangular part, as a 1-dimensional vector).
     A_compressed = np.random.choice(2, size=(N*(N-1)//2,), p=[1.-p,p])
     # Compute the graph's combinatorial laplacian
-    L = laplacian(csr_matrix(squareform(A_compressed), dtype=np.float))
+    L = laplacian(csr_matrix(squareform(A_compressed), dtype=np.float64))
     # Sample the features
     X = np.random.randn(N,1) * gamma
     # Conclude
@@ -535,11 +535,11 @@ def time_steps():
     tau_all  = 10**np.linspace(-2.,0.,num=n_tau)
     err      = 1e-5
 
-    time_eig  = np.empty((n_tau,n_graphs), dtype=np.float)
-    time_K    = np.empty((n_tau,n_graphs), dtype=np.float)
-    time_poly = np.empty((n_tau,n_graphs), dtype=np.float)
-    time_coef = np.empty((n_tau,n_graphs), dtype=np.float)
-    time_comb = np.empty((n_tau,n_graphs), dtype=np.float)
+    time_eig  = np.empty((n_tau,n_graphs), dtype=np.float64)
+    time_K    = np.empty((n_tau,n_graphs), dtype=np.float64)
+    time_poly = np.empty((n_tau,n_graphs), dtype=np.float64)
+    time_coef = np.empty((n_tau,n_graphs), dtype=np.float64)
+    time_comb = np.empty((n_tau,n_graphs), dtype=np.float64)
 
     pbar = tqdm(total=n_graphs*n_tau)
     for i,(L,X) in enumerate(get_er(n_graphs, N=1000)):
@@ -601,11 +601,11 @@ def min_K_er():
     # tau      = 1.
     # err_all  = 10**np.linspace(-16, -3, num=n_val)
     err      = 1e-5
-    bound_V8_all  = np.empty( (n_graphs,n_val), dtype=np.float )
-    bound_V9_all  = np.empty( (n_graphs,n_val), dtype=np.float )
-    bound_VI1_all = np.empty( (n_graphs,n_val), dtype=np.float )
-    bound_VI3_all = np.empty( (n_graphs,n_val), dtype=np.float )
-    real_K_all    = np.empty( (n_graphs,n_val), dtype=np.float )
+    bound_V8_all  = np.empty( (n_graphs,n_val), dtype=np.float64 )
+    bound_V9_all  = np.empty( (n_graphs,n_val), dtype=np.float64 )
+    bound_VI1_all = np.empty( (n_graphs,n_val), dtype=np.float64 )
+    bound_VI3_all = np.empty( (n_graphs,n_val), dtype=np.float64 )
+    real_K_all    = np.empty( (n_graphs,n_val), dtype=np.float64 )
 
     # avg_lmax = 0.
     # avg_tlim = 0.
@@ -732,7 +732,7 @@ def speed_analysis_firstmm_db():
             # Build a standard signal/initial heat value: 1 on a node, 0 elswhere
             N,_ = L.shape
             idx = np.random.default_rng().integers(low=0,high=N)
-            X = np.zeros((N,1), dtype=np.float)
+            X = np.zeros((N,1), dtype=np.float64)
             X[idx] = 1.
 
             # Time Scipy's method
@@ -787,9 +787,9 @@ def generate_K_tau_err_figure():
     tau_list  = 10**np.linspace(-5.,1., num=n_tau_val)
 
     # Experiment results
-    err_all_1 = np.empty((n_K_val,n_tau_val,n_graphs), dtype=np.float)
-    err_all_2 = np.empty((n_K_val,n_tau_val,n_graphs), dtype=np.float)
-    err_ref   = np.empty((n_K_val,n_tau_val,n_graphs), dtype=np.float)
+    err_all_1 = np.empty((n_K_val,n_tau_val,n_graphs), dtype=np.float64)
+    err_all_2 = np.empty((n_K_val,n_tau_val,n_graphs), dtype=np.float64)
+    err_ref   = np.empty((n_K_val,n_tau_val,n_graphs), dtype=np.float64)
 
     pbar=tqdm(total=n_K_val*n_tau_val*n_graphs)
     for k,(L,X) in enumerate(get_firstmm_db(n_graphs)):
