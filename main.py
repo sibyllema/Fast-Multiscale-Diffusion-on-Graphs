@@ -12,11 +12,12 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm # Color map
 plt.rcParams.update({'font.size': 12})
 
-# Usefull functions
+# Useful functions
 from scipy.special import ive # Bessel function
 from scipy.special import factorial
 from scipy.spatial.distance import squareform
 from scipy.linalg import expm
+from scipy.sparse import load_npz as load_sparse
 
 # Sparse matrix algebra
 from scipy.sparse import csr_matrix
@@ -525,6 +526,11 @@ def get_firstmm_db(k):
     L_all = [laplacian(A) for A in A_all]
     return zip(L_all, X_all)
 
+def get_standford_bunny():
+    L = load_sparse("data/standford_bunny_laplacian.npz")
+    X = np.load("data/standford_bunny_coords.npz")
+    return L,X
+
 ################################################################################
 ### How much time do the individual steps take #################################
 ################################################################################
@@ -595,7 +601,7 @@ def time_steps():
 def min_K_er():
     """ Display the minimum K to achieve a desired accuracy against tau. """
     logger.debug("### min_K_er() ###")
-    n_graphs = 40
+    n_graphs = 100
     n_val    = 25
     tau_all  = 10**np.linspace(-2.,2.,num=n_val)
     # tau      = 1.
@@ -841,7 +847,8 @@ def generate_K_tau_err_figure():
 ################################################################################
 
 if __name__=="__main__":
-    min_K_er()
+    L,X = get_standford_bunny()
+    # min_K_er()
     # speed_for_set_of_tau()
     # speed_analysis_firstmm_db()
     # time_steps()
