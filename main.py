@@ -718,67 +718,82 @@ def speed_for_set_of_tau():
 ### Speed and precision with tau increasing ####################################
 ################################################################################
 
-def speed_analysis_firstmm_db():
+def speed_analysis_standford_bunny():
     # Experiment parameters
-    n_graphs  = 40 # Number of graphs to average the performance over
-    n_runs    = 10 # Number of runs to average performances over
-    n_tau_val = 10 # Number of tau values
-    tau_list  = 10**np.linspace(-3.,-1., num=n_tau_val)
+    n_runs      = 100 # Number of runs to average performances over
+    tau_log_min = -3.
+    tau_log_max = 1.
+    tau_num_all = 5*np.arange(1,6)
 
     # How much time does each method takes
-    time_sp = np.zeros((n_graphs,n_runs))
-    time_ar = np.zeros((n_graphs,n_runs))
-    time_cb = np.zeros((n_graphs,n_runs))
+    time_sp = np.empty((len(tau_num_all),n_runs,), dtype=np.float64)
+    # time_ar = np.empty((5,n_runs,), dtype=np.float64)
+    time_cb = np.empty((len(tau_num_all),n_runs,), dtype=np.float64)
 
     # Loop over graphs
-    pbar = tqdm(total=n_graphs*n_runs)
-    for i,(L,_) in enumerate(get_firstmm_db(n_graphs)):
-        # Loop over runs
-        for j in range(n_runs):
-            # Build a standard signal/initial heat value: 1 on a node, 0 elswhere
-            N,_ = L.shape
-            idx = np.random.default_rng().integers(low=0,high=N)
-            X = np.zeros((N,1), dtype=np.float64)
-            X[idx] = 1.
+    L,_ = get_standford_bunny()
+    N,_ = L.shape
+    pbar = tqdm(total=n_runs)
+    for i in range(n_runs):
+        # Build a standard signal/initial heat value: 1 on a node, 0 elsewhere
+        idx = np.random.default_rng().integers(low=0,high=N)
+        X = np.zeros((N,1), dtype=np.float64)
+        X[idx] = 1.
+
+        # Iterate over number of \tau values
+        for j,tau_num in enumerate(tau_num_all):
+            # tau_list = 10.**np.linspace(tau_log_min, tau_log_max, num=tau_num)
+            tau_list = 10.**np.random.default_rng().uniform(low=tau_log_min, high=tau_log_max, size=(tau_num,))
 
             # Time Scipy's method
             t_start = time()
             for tau in tau_list:
                 _ = sparse_expm_multiply(-tau*L, X)
             t_stop = time()
-            time_sp[i,j] += t_stop - t_start
+            time_sp[j,i] = t_stop - t_start
 
-            # Time ART's method
-            t_start = time()
-            for tau in tau_list:
-                _ = art_expm(L, X, tau, toler=1e-3, m=60)
-            t_stop = time()
-            time_ar[i,j] += t_stop - t_start
+            # # Time ART's method
+            # t_start = time()
+            # for tau in tau_list:
+            #     _ = art_expm(L, X, tau, toler=1e-5, m=60)
+            # t_stop = time()
+            # time_ar[j,i] = t_stop - t_start
 
             # Time our method
             t_start = time()
             _ = expm_multiply(L, X, tau_list, err=1e-5)
             t_stop = time()
-            time_cb[i,j] += t_stop - t_start
+            time_cb[j,i] = t_stop - t_start
 
-            pbar.update(1)
+        pbar.update(1)
     pbar.close()
 
-    # # Average timesover runs
-    # time_sp = np.average(time_sp, axis=-1)
-    # time_ar = np.average(time_ar, axis=-1)
-    # time_cb = np.average(time_cb, axis=-1)
+    # # Plot everything
+    # plot_fancy_error_bar(tau_num_all, time_sp, label="Scipy", color="red")
+    # plot_fancy_error_bar(tau_num_all, time_cb, label="Chebychev", color="blue")
+    # # plot_fancy_error_bar(tau_num_all, time_ar, label="ART (Krylov)", color="green")
+    #
+    # # Configure plot
+    # plt.grid()
+    # plt.legend()
+    # plt.xlabel(r"Number of scales $\tau$")
+    # plt.ylabel("time (s)")
+    # plt.show()
 
-    plt.boxplot(
-        [np.ravel(time_sp), np.ravel(time_ar), np.ravel(time_cb)],
-        vert=False,
-        whis=(10,90),
-        labels=["Scipy", "ART (Krylov)", "Chebyshev"])
+    # bp()
+    from scipy.stats import linregress
+    res_sp = linregress(np.repeat(tau_num_all, n_runs), time_sp.flatten())
+    res_cb = linregress(np.repeat(tau_num_all, n_runs), time_cb.flatten())
+    print(f"sp: t = {res_sp.intercept:.2E} + n_scale*{res_sp.slope:.2E}")
+    print(f"cb: t = {res_cb.intercept:.2E} + n_scale*{res_cb.slope:.2E}")
 
-    # Configure plot
-    plt.xlabel(r"Time (s)")
-    plt.grid()
-    plt.show()
+    # print(f"Avg/std times for {n_runs} iterations and {n_tau_val} scales:")
+    # print(f"{np.average(time_sp):.4f}+-{np.std(time_sp):.4f} (Scipy)")
+    # print(f"{np.average(time_ar):.4f}+-{np.std(time_ar):.4f} (ART)")
+    # print(f"{np.average(time_cb):.4f}+-{np.std(time_cb):.4f} (Chebychev)")
+    # print("Note:")
+    # print(f"- l_max={eigsh(L, k=1, return_eigenvectors=False)[0]}")
+    # print(f"- n_nodes={N}")
 
 ################################################################################
 ### 3d diagram tau/K/error #####################################################
@@ -847,7 +862,7 @@ def generate_K_tau_err_figure():
 ################################################################################
 
 if __name__=="__main__":
-    L,X = get_standford_bunny()
+    speed_analysis_standford_bunny()
     # min_K_er()
     # speed_for_set_of_tau()
     # speed_analysis_firstmm_db()
