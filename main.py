@@ -528,7 +528,7 @@ def get_firstmm_db(k):
 
 def get_standford_bunny():
     L = load_sparse("data/standford_bunny_laplacian.npz")
-    X = np.load("data/standford_bunny_coords.npz")
+    X = np.load("data/standford_bunny_coords.npy")
     return L,X
 
 ################################################################################
@@ -723,7 +723,8 @@ def speed_analysis_standford_bunny():
     n_runs      = 100 # Number of runs to average performances over
     tau_log_min = -3.
     tau_log_max = 1.
-    tau_num_all = 5*np.arange(1,6)
+    tau_num_all = np.arange(1,10)
+    # tau_num_all = np.concatenate( [np.array([1]), 5*np.arange(1,6)] )
 
     # How much time does each method takes
     time_sp = np.empty((len(tau_num_all),n_runs,), dtype=np.float64)
@@ -733,7 +734,7 @@ def speed_analysis_standford_bunny():
     # Loop over graphs
     L,_ = get_standford_bunny()
     N,_ = L.shape
-    pbar = tqdm(total=n_runs)
+    pbar = tqdm(total=n_runs*len(tau_num_all))
     for i in range(n_runs):
         # Build a standard signal/initial heat value: 1 on a node, 0 elsewhere
         idx = np.random.default_rng().integers(low=0,high=N)
@@ -742,13 +743,21 @@ def speed_analysis_standford_bunny():
 
         # Iterate over number of \tau values
         for j,tau_num in enumerate(tau_num_all):
-            # tau_list = 10.**np.linspace(tau_log_min, tau_log_max, num=tau_num)
-            tau_list = 10.**np.random.default_rng().uniform(low=tau_log_min, high=tau_log_max, size=(tau_num,))
+            # ### linearly-spaced:
+            # tau_list = [10**tau_log_min/2+10**tau_log_max/2] if tau_num==1 else np.linspace(10**tau_log_min, 10**tau_log_max, num=tau_num)
+            # ### log-uniformly sampled:
+            # tau_list = 10.**np.random.default_rng().uniform(low=tau_log_min, high=tau_log_max, size=(tau_num,))
+            # ### uniformly sampled:
+            tau_list = np.random.default_rng().uniform(low=10.**tau_log_min, high=10.**tau_log_max, size=(tau_num,))
 
             # Time Scipy's method
             t_start = time()
             for tau in tau_list:
                 _ = sparse_expm_multiply(-tau*L, X)
+            # if tau_num==1:
+            #     _ = sparse_expm_multiply(tau_list[0]*L, X)
+            # else:
+            #     _ = sparse_expm_multiply(-L, X, start=10**tau_log_min, stop=10**tau_log_max, num=tau_num, endpoint=True)
             t_stop = time()
             time_sp[j,i] = t_stop - t_start
 
@@ -765,22 +774,21 @@ def speed_analysis_standford_bunny():
             t_stop = time()
             time_cb[j,i] = t_stop - t_start
 
-        pbar.update(1)
+            pbar.update(1)
     pbar.close()
 
-    # # Plot everything
-    # plot_fancy_error_bar(tau_num_all, time_sp, label="Scipy", color="red")
-    # plot_fancy_error_bar(tau_num_all, time_cb, label="Chebychev", color="blue")
+    # Plot everything
+    plot_fancy_error_bar(tau_num_all, time_sp, label="Scipy", color="red")
+    plot_fancy_error_bar(tau_num_all, time_cb, label="Chebychev", color="blue")
     # # plot_fancy_error_bar(tau_num_all, time_ar, label="ART (Krylov)", color="green")
     #
-    # # Configure plot
-    # plt.grid()
-    # plt.legend()
-    # plt.xlabel(r"Number of scales $\tau$")
-    # plt.ylabel("time (s)")
-    # plt.show()
+    # Configure plot
+    plt.grid()
+    plt.legend()
+    plt.xlabel(r"Number of scales $\tau$")
+    plt.ylabel("time (s)")
+    plt.show()
 
-    # bp()
     from scipy.stats import linregress
     res_sp = linregress(np.repeat(tau_num_all, n_runs), time_sp.flatten())
     res_cb = linregress(np.repeat(tau_num_all, n_runs), time_cb.flatten())
@@ -858,12 +866,68 @@ def generate_K_tau_err_figure():
     plt.show()
 
 ################################################################################
+### 3d plot of diffusion on standford bunny ####################################
+################################################################################
+
+from mpl_toolkits.mplot3d import Axes3D
+def plot_bunny():
+    # Load data
+    L,pos = get_standford_bunny()
+    N,_ = pos.shape
+
+    # Create and diffuse a signal
+    X = np.zeros((N,1), dtype=np.float64)
+    X[0] = 1.
+
+    # Diffuse the signal twice (+ compute the time it takes):
+    # - once with Scipy's default method
+    # - once with our method, with a low degree K
+    tau = 1.
+    err = 1e-2
+    Y_sp = sparse_expm_multiply(-tau*L,X)
+    Y_cb = expm_multiply(L, X, tau, err=err)
+
+    # Plot both signals
+    fig = plt.figure()
+    ax_sp = fig.add_subplot(121, projection='3d')
+    ax_cb = fig.add_subplot(122, projection='3d')
+    ax_sp.scatter(xs=pos[:,0], ys=-pos[:,2], zs=pos[:,1],c=Y_sp)
+    ax_cb.scatter(xs=pos[:,0], ys=-pos[:,2], zs=pos[:,1],c=Y_cb)
+
+    ax_sp.axis("off")
+    ax_cb.axis("off")
+    plt.savefig("fig/bunny.pdf",bbox_inches="tight")
+    plt.show()
+
+    # Repeat many times the computations, to get the average computation time.
+    # Note that it is important to alternate between the two methods to get a
+    # stable result (else the speed-up vary wildly. Probably a cache thing, it's
+    # a difficult to tame beast).
+    n_runs = 1000
+    t_sp = 0.
+    t_cb = 0.
+    for _ in range(n_runs):
+        t_start = time()
+        Y_sp = sparse_expm_multiply(-tau*L,X)
+        t_stop = time()
+        t_sp += t_stop-t_start
+
+        t_start = time()
+        Y_cb = expm_multiply(L, X, tau, err=err)
+        t_stop = time()
+        t_cb += t_stop-t_start
+
+    print(f"t={t_sp/n_runs:.2E} (Scipy)")
+    print(f"t={t_cb/n_runs:.2E} (Chebychev, eta_K <= {err})")
+
+    print(f"Speed-up={100*(t_cb-t_sp)/t_sp:.0f}%")
+
+
+
+################################################################################
 ### Main #######################################################################
 ################################################################################
 
 if __name__=="__main__":
-    speed_analysis_standford_bunny()
-    # min_K_er()
-    # speed_for_set_of_tau()
-    # speed_analysis_firstmm_db()
-    # time_steps()
+    plot_bunny()
+    # speed_analysis_standford_bunny()
