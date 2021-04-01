@@ -441,42 +441,42 @@ def compute_chebychev_coeff_all(phi, tau, K):
     """ Compute recursively the K+1 Chebychev coefficients for our functions. """
     return 2*ive(np.arange(0, K+1), -tau * phi)
 
-def expm_multiply(L, X, tau, K=None, err=1e-32):
-    """ Computes the action of exp(-t*L) on X for all t in X."""
-    # Compute phi = l_max/2
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    # Check if tau is a single value, a list or a ndarray.
-    if isinstance(tau, (float, int)):
-        # Get minimal K to go below the desired error
-        if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
-        # Compute Chebychev polynomials
-        poly = compute_chebychev_pol(X, L, phi, K)
-        # Compute Chebychev coefficients
-        coeff = compute_chebychev_coeff_all(phi, tau, K)
-        # Perform linear combination
-        Y = .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
-        return Y
-    elif isinstance(tau, list):
-        # Same as earlier, but iterate on a list.
-        if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, max(tau), err)
-        poly = compute_chebychev_pol(X, L, phi, K)
-        coeff_list = [compute_chebychev_coeff_all(phi, t, K) for t in tau]
-        Y_list = [.5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T for coeff in coeff_list]
-        return Y_list
-    elif isinstance(tau, np.ndarray):
-        if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, np.amax(tau), err)
-        poly = compute_chebychev_pol(X, L, phi, K)
-        f = lambda t: compute_chebychev_coeff_all(phi, t, K)
-        g = lambda coeff: .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
-        h = lambda t: g(f(t))
-        # Yes I know, it' s a for loop.
-        # I can't make np.vectorize work >.<
-        out = np.empty(tau.shape+X.shape, dtype=X.dtype)
-        for index,t in np.ndenumerate(tau):
-            out[index] = h(t)
-        return out
-    else:
-        print(f"expm_multiply(): unsupported data type for tau ({type(tau)})")
+# def expm_multiply(L, X, tau, K=None, err=1e-32):
+#     """ Computes the action of exp(-t*L) on X for all t in X."""
+#     # Compute phi = l_max/2
+#     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+#     # Check if tau is a single value, a list or a ndarray.
+#     if isinstance(tau, (float, int)):
+#         # Get minimal K to go below the desired error
+#         if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
+#         # Compute Chebychev polynomials
+#         poly = compute_chebychev_pol(X, L, phi, K)
+#         # Compute Chebychev coefficients
+#         coeff = compute_chebychev_coeff_all(phi, tau, K)
+#         # Perform linear combination
+#         Y = .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
+#         return Y
+#     elif isinstance(tau, list):
+#         # Same as earlier, but iterate on a list.
+#         if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, max(tau), err)
+#         poly = compute_chebychev_pol(X, L, phi, K)
+#         coeff_list = [compute_chebychev_coeff_all(phi, t, K) for t in tau]
+#         Y_list = [.5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T for coeff in coeff_list]
+#         return Y_list
+#     elif isinstance(tau, np.ndarray):
+#         if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, np.amax(tau), err)
+#         poly = compute_chebychev_pol(X, L, phi, K)
+#         f = lambda t: compute_chebychev_coeff_all(phi, t, K)
+#         g = lambda coeff: .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
+#         h = lambda t: g(f(t))
+#         # Yes I know, it' s a for loop.
+#         # I can't make np.vectorize work >.<
+#         out = np.empty(tau.shape+X.shape, dtype=X.dtype)
+#         for index,t in np.ndenumerate(tau):
+#             out[index] = h(t)
+#         return out
+#     else:
+#         print(f"expm_multiply(): unsupported data type for tau ({type(tau)})")
 
 def get_diffusion_fun(L, X, K=None):
     """ Creates a function to compute exp(-t*L) on X, for t given later."""
@@ -493,6 +493,68 @@ def get_diffusion_fun(L, X, K=None):
         Y = .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
         return Y
     return f
+
+def expm_multiply(L, X, tau, K=None, err=1e-32):
+    # Get statistics
+    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
+    N, d = X.shape
+    if isinstance(tau, (float, int)):
+        # Compute minimal K
+        if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, np.amax(tau), err)
+        # Compute coefficients (they should all fit in memory, no problem)
+        coeff = compute_chebychev_coeff_all(phi, tau, K)
+        # Initialize the accumulator with only the first coeff/polynomial
+        T0 = X
+        Y  = .5 * coeff[0] * T0
+        # Add the second coeff/polynomial to the accumulator
+        T1 = (1 / phi) * L @ X - T0
+        Y  = Y + coeff[1] * T1
+        # Add the next coeff/polynomial
+        for j in range(2, K + 1):
+            T2 = (2 / phi) * L @ T1 - 2 * T1 - T0
+            Y  = Y + coeff[j] * T2
+            T0 = T1
+            T1 = T2
+        return Y
+    elif isinstance(tau, list):
+        if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, max(tau), err)
+        coeff_list = [compute_chebychev_coeff_all(phi, t, K) for t in tau]
+        T0 = X
+        Y_list  = [.5 * coeff[0] * T0 for coeff in coeff_list]
+        T1 = (1 / phi) * L @ X - T0
+        Y_list  = [Y + coeff[1] * T1 for Y,coeff in zip(Y_list, coeff_list)]
+        for j in range(2, K + 1):
+            T2 = (2 / phi) * L @ T1 - 2 * T1 - T0
+            Y_list = [Y + coeff[j] * T2 for Y,coeff in zip(Y_list, coeff_list)]
+            T0 = T1
+            T1 = T2
+        return Y_list
+    elif isinstance(tau, np.ndarray):
+        # Compute the order K corresponding to the required error
+        if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, np.amax(tau), err)
+        # Compute the coefficients for every tau
+        coeff = np.empty(tau.shape+(K+1,), dtype=np.float64)
+        for index,t in np.ndenumerate(tau):
+            coeff[index] = compute_chebychev_coeff_all(phi, t, K)
+        # Compute the output for just the first polynomial/coefficient
+        T0 = X
+        Y = np.empty(tau.shape+X.shape, dtype=X.dtype)
+        for index,t in np.ndenumerate(tau):
+            Y[index] = .5 * coeff[index][0] * T0
+        # Add the second polynomial/coefficient
+        T1 = (1 / phi) * L @ X - T0
+        for index,t in np.ndenumerate(tau):
+            Y[index] = Y[index] + coeff[index][1] * T1
+        # Recursively add the others polynomials/coefficients
+        for j in range(2, K + 1):
+            T2 = (2 / phi) * L @ T1 - 2 * T1 - T0
+            for index,t in np.ndenumerate(tau):
+                Y[index] = Y[index] + coeff[index][j] * T2
+            T0 = T1
+            T1 = T2
+        return Y
+    else:
+        print(f"expm_multiply_stream(): unsupported data type for tau ({type(tau)})")
 
 ################################################################################
 ### Data #######################################################################
@@ -875,29 +937,74 @@ def plot_bunny():
     L,pos = get_standford_bunny()
     N,_ = pos.shape
 
-    # Create and diffuse a signal
+    # Re-order 3d coordinates, for plotting later
+    pos[:,1],pos[:,2] = -pos[:,2],pos[:,1].copy()
+
+    # Create a (Dirac) signal
     X = np.zeros((N,1), dtype=np.float64)
     X[0] = 1.
 
-    # Diffuse the signal twice (+ compute the time it takes):
-    # - once with Scipy's default method
-    # - once with our method, with a low degree K
-    tau = 1.
+    # Prepare the figure and the expriment parameters
+    fig = plt.figure()
+    tau_all = [.1, .5, 1., 2.]
     err = 1e-2
-    Y_sp = sparse_expm_multiply(-tau*L,X)
-    Y_cb = expm_multiply(L, X, tau, err=err)
+
+    # Diffuse the signal with Scipy's method.
+    for i,tau in enumerate(tau_all):
+        # Get axis
+        ax = fig.add_subplot(240+(i+1), projection='3d')
+        # Compute diffusion
+        Y  = sparse_expm_multiply(-tau*L,X)
+        # Plot (matplotlib wil figure the colors itself)
+        ax.scatter(xs=pos[:,0], ys=pos[:,1], zs=pos[:,2],c=Y)
+        # Configure
+        ax.axis("off")
+        ax.set_xlim(np.amin(pos[:,0])*.9, np.amax(pos[:,0])*.9)
+        ax.set_ylim(np.amin(pos[:,1])*.9, np.amax(pos[:,1])*.9)
+        ax.set_zlim(np.amin(pos[:,2])*.9, np.amax(pos[:,2])*.9)
+
+    # Diffuse the signal with our method
+    for i,tau in enumerate(tau_all):
+        ax = fig.add_subplot(240+(i+1+4), projection='3d')
+        Y  = expm_multiply(L, X, tau, err=err)
+        ax.scatter(xs=pos[:,0], ys=pos[:,1], zs=pos[:,2],c=Y)
+        ax.axis("off")
+        ax.set_xlim(np.amin(pos[:,0])*.9, np.amax(pos[:,0])*.9)
+        ax.set_ylim(np.amin(pos[:,1])*.9, np.amax(pos[:,1])*.9)
+        ax.set_zlim(np.amin(pos[:,2])*.9, np.amax(pos[:,2])*.9)
+
+    # # Diffuse the signal twice (+ compute the time it takes):
+    # # - once with Scipy's default method
+    # # - once with our method, with a low degree K
+    # tau = 1.
+    # err = 1e-2
+    # Y_sp = sparse_expm_multiply(-tau*L,X)
+    # Y_cb = expm_multiply(L, X, tau, err=err)
 
     # Plot both signals
-    fig = plt.figure()
-    ax_sp = fig.add_subplot(121, projection='3d')
-    ax_cb = fig.add_subplot(122, projection='3d')
-    ax_sp.scatter(xs=pos[:,0], ys=-pos[:,2], zs=pos[:,1],c=Y_sp)
-    ax_cb.scatter(xs=pos[:,0], ys=-pos[:,2], zs=pos[:,1],c=Y_cb)
+    # ax_sp = fig.add_subplot(121, projection='3d')
+    # ax_cb = fig.add_subplot(122, projection='3d')
+    # ax_sp.scatter(xs=pos[:,0], ys=pos[:,1], zs=pos[:,2],c=Y_sp)
+    # ax_cb.scatter(xs=pos[:,0], ys=pos[:,1], zs=pos[:,2],c=Y_cb)
 
-    ax_sp.axis("off")
-    ax_cb.axis("off")
+    # Configure plot
+    # ax_sp.axis("off")
+    # ax_cb.axis("off")
+
+    # ax_sp.set_xlim(np.amin(pos[:,0]), np.amax(pos[:,0]))
+    # ax_cb.set_xlim(np.amin(pos[:,0]), np.amax(pos[:,0]))
+    # ax_sp.set_ylim(np.amin(-pos[:,2]), np.amax(-pos[:,2]))
+    # ax_cb.set_ylim(np.amin(-pos[:,2]), np.amax(-pos[:,2]))
+    # ax_sp.set_zlim(np.amin(pos[:,1]), np.amax(pos[:,1]))
+    # ax_cb.set_zlim(np.amin(pos[:,1]), np.amax(pos[:,1]))
+
+    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+
+    # Save abd display plot
     plt.savefig("fig/bunny.pdf",bbox_inches="tight")
     plt.show()
+
+    quit()
 
     # Repeat many times the computations, to get the average computation time.
     # Note that it is important to alternate between the two methods to get a
@@ -922,12 +1029,61 @@ def plot_bunny():
 
     print(f"Speed-up={100*(t_cb-t_sp)/t_sp:.0f}%")
 
+################################################################################
+### Timing diffusion at multiple scales in a big graph #########################
+################################################################################
 
+from ogb.graphproppred import GraphPropPredDataset
+from ogb.nodeproppred import NodePropPredDataset
+def time_ogbn():
+    logger.debug("Loading data from file")
+    dataset_name = "ogbn-arxiv"
+    # dataset = GraphPropPredDataset(name=dataset_name, root='data/')
+    dataset = NodePropPredDataset(name=dataset_name, root='data/')
+
+    logger.debug("Building graph labels")
+    L = dataset.labels.squeeze()
+    lbl_all = np.unique(L)
+    n_lbl = len(lbl_all)
+    N = len(L)
+
+    logger.debug("Building node attribute")
+    x = dataset.graph["node_feat"]
+    n = len(x)
+
+    logger.debug("Building graph structure")
+    gl = laplacian(csr_matrix(
+        arg1=(np.ones(len(dataset.graph["edge_index"][0])),
+              (dataset.graph["edge_index"][0],
+               dataset.graph["edge_index"][1])),
+        shape=(n,n)
+    ))
+
+    logger.debug("Sampling tau")
+    tau_min = .01
+    tau_max = 2.
+    tau_num = 1
+    tau_all = np.random.default_rng().uniform(low=tau_min,high=tau_max,size=(tau_num,))
+
+    logger.debug("Computing diffusion with scipy's method")
+    t_start = time()
+    for tau in tau_all:
+        _ = sparse_expm_multiply(-tau*gl, x)
+    t_stop = time()
+    print(f"t={t_stop-t_start:.2E}")
+
+    logger.debug("Computing diffusion with our method")
+
+    t_start = time()
+    _ = expm_multiply_stream(gl, x, tau_all, err=1e-3)
+    t_stop = time()
+    print(f"t={t_stop-t_start:.2E}")
 
 ################################################################################
 ### Main #######################################################################
 ################################################################################
 
 if __name__=="__main__":
-    plot_bunny()
+    test()
+    # plot_bunny()
     # speed_analysis_standford_bunny()
