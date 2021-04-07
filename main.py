@@ -20,7 +20,7 @@ from scipy.linalg import expm, eigh
 from scipy.sparse import load_npz as load_sparse
 
 # Sparse matrix algebra
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, diags
 from scipy.sparse.linalg import eigsh # Eigenvalues computation
 from scipy.sparse.csgraph import laplacian # Laplacian from sparse matrix
 from scipy.sparse.csgraph import connected_components
@@ -1054,15 +1054,22 @@ def time_ogbn():
     n = len(x)
 
     logger.debug("Building graph structure")
-    gl = laplacian(csr_matrix(
+    # Build the adjacency matrix
+    a = csr_matrix(
         arg1=(np.ones(len(dataset.graph["edge_index"][0])),
               (dataset.graph["edge_index"][0],
                dataset.graph["edge_index"][1])),
         shape=(n,n)
-    ))
+    )
+    # Make the adjacency matrix symmetric
+    a = a + a.T - diags(a.diagonal())
+    # Build the laplacian from the adjacency matrix
+    gl = laplacian(a)
 
-    logger.debug("Sampling tau")
+    logger.debug("Defining tau interval")
     # Following recommendation of https://arxiv.org/pdf/1710.10321.pdf
+    # print(eigsh(gl, k=1, which="SA", return_eigenvectors=False)[0])
+    # quit()
     gam = .95
     eta = .85
     l2  = 0.00195894 # eigsh(gl, k=1, which="SM", return_eigenvectors=False)[0]
