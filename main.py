@@ -1068,8 +1068,8 @@ def time_ogbn():
 
     logger.debug("Defining tau interval")
     # Following recommendation of https://arxiv.org/pdf/1710.10321.pdf
-    # print(eigsh(gl, k=1, which="SA", return_eigenvectors=False)[0])
-    # quit()
+    print(eigsh(gl, k=3, which="SM", return_eigenvectors=False))
+    quit()
     gam = .95
     eta = .85
     l2  = 0.00195894 # eigsh(gl, k=1, which="SM", return_eigenvectors=False)[0]
