@@ -16,7 +16,7 @@ plt.rcParams.update({'font.size': 12})
 from scipy.special import ive # Bessel function
 from scipy.special import factorial
 from scipy.spatial.distance import squareform
-from scipy.linalg import expm
+from scipy.linalg import expm, eigh
 from scipy.sparse import load_npz as load_sparse
 
 # Sparse matrix algebra
@@ -703,10 +703,10 @@ def min_K_er():
     # avg_tlim /= n_graphs
 
     # Plot all this
-    plot_fancy_error_bar(tau_all, bound_V8_all.T, label=f"Bound IV.8 (our, generic)", linestyle="solid", marker="o", color="blue")
-    plot_fancy_error_bar(tau_all, bound_V9_all.T, label=f"Bound IV.9 (our, specific)", linestyle="solid", marker="x", color="blue")
-    plot_fancy_error_bar(tau_all, bound_VI1_all.T, label=f"Bound V.1 (Bergamaschi's, specific)", linestyle="dotted", marker="x", color="red")
-    plot_fancy_error_bar(tau_all, bound_VI3_all.T, label=f"Bound V.3 (Bergamaschi's, generic)", linestyle="dotted", marker="o", color="red")
+    plot_fancy_error_bar(tau_all, bound_V8_all.T, label=f"Bound III.8 (our, generic)", linestyle="solid", marker="o", color="blue")
+    plot_fancy_error_bar(tau_all, bound_V9_all.T, label=f"Bound III.9 (our, specific)", linestyle="solid", marker="x", color="blue")
+    plot_fancy_error_bar(tau_all, bound_VI1_all.T, label=f"Bound IV.1 (Bergamaschi's, specific)", linestyle="dotted", marker="x", color="red")
+    plot_fancy_error_bar(tau_all, bound_VI3_all.T, label=f"Bound IV.3 (Bergamaschi's, generic)", linestyle="dotted", marker="o", color="red")
     plot_fancy_error_bar(tau_all, real_K_all.T, label=f"Real required K", color="black")
 
     # # Plot relevant tau values
@@ -782,7 +782,7 @@ def speed_for_set_of_tau():
 
 def speed_analysis_standford_bunny():
     # Experiment parameters
-    n_runs      = 100 # Number of runs to average performances over
+    n_runs      = 10 # Number of runs to average performances over
     tau_log_min = -3.
     tau_log_max = 1.
     tau_num_all = np.arange(1,10)
@@ -805,21 +805,21 @@ def speed_analysis_standford_bunny():
 
         # Iterate over number of \tau values
         for j,tau_num in enumerate(tau_num_all):
-            # ### linearly-spaced:
-            # tau_list = [10**tau_log_min/2+10**tau_log_max/2] if tau_num==1 else np.linspace(10**tau_log_min, 10**tau_log_max, num=tau_num)
+            ### linearly-spaced:
+            tau_list = [10**tau_log_min/2+10**tau_log_max/2] if tau_num==1 else np.linspace(10**tau_log_min, 10**tau_log_max, num=tau_num)
             # ### log-uniformly sampled:
             # tau_list = 10.**np.random.default_rng().uniform(low=tau_log_min, high=tau_log_max, size=(tau_num,))
             # ### uniformly sampled:
-            tau_list = np.random.default_rng().uniform(low=10.**tau_log_min, high=10.**tau_log_max, size=(tau_num,))
+            # tau_list = np.random.default_rng().uniform(low=10.**tau_log_min, high=10.**tau_log_max, size=(tau_num,))
 
             # Time Scipy's method
             t_start = time()
-            for tau in tau_list:
-                _ = sparse_expm_multiply(-tau*L, X)
-            # if tau_num==1:
-            #     _ = sparse_expm_multiply(tau_list[0]*L, X)
-            # else:
-            #     _ = sparse_expm_multiply(-L, X, start=10**tau_log_min, stop=10**tau_log_max, num=tau_num, endpoint=True)
+            # for tau in tau_list:
+            #     _ = sparse_expm_multiply(-tau*L, X)
+            if tau_num==1:
+                _ = sparse_expm_multiply(tau_list[0]*L, X)
+            else:
+                _ = sparse_expm_multiply(-L, X, start=10**tau_log_min, stop=10**tau_log_max, num=tau_num, endpoint=True)
             t_stop = time()
             time_sp[j,i] = t_stop - t_start
 
@@ -946,28 +946,28 @@ def plot_bunny():
 
     # Prepare the figure and the expriment parameters
     fig = plt.figure()
-    tau_all = [.1, .5, 1., 2.]
-    err = 1e-2
-
-    # Diffuse the signal with Scipy's method.
-    for i,tau in enumerate(tau_all):
-        # Get axis
-        ax = fig.add_subplot(240+(i+1), projection='3d')
-        # Compute diffusion
-        Y  = sparse_expm_multiply(-tau*L,X)
-        # Plot (matplotlib wil figure the colors itself)
-        ax.scatter(xs=pos[:,0], ys=pos[:,1], zs=pos[:,2],c=Y)
-        # Configure
-        ax.axis("off")
-        ax.set_xlim(np.amin(pos[:,0])*.9, np.amax(pos[:,0])*.9)
-        ax.set_ylim(np.amin(pos[:,1])*.9, np.amax(pos[:,1])*.9)
-        ax.set_zlim(np.amin(pos[:,2])*.9, np.amax(pos[:,2])*.9)
+    tau_all = np.linspace(.001, 10, num=8)
+    err = 1e-5
 
     # Diffuse the signal with our method
     for i,tau in enumerate(tau_all):
-        ax = fig.add_subplot(240+(i+1+4), projection='3d')
-        Y  = expm_multiply(L, X, tau, err=err)
-        ax.scatter(xs=pos[:,0], ys=pos[:,1], zs=pos[:,2],c=Y)
+        # Prepare plot
+        ax = fig.add_subplot(240+i+1, projection='3d')
+        # Get diffusion with scipy
+        t_start = time()
+        Y_cb  = expm_multiply(L, X, tau, err=err)
+        t_stop = time()
+        t_cb = t_stop - t_start
+        # Get diffusion with our method
+        t_start = time()
+        Y_sp = sparse_expm_multiply(-tau*L, X)
+        t_stop = time()
+        t_sp = t_stop - t_start
+        # Plot
+        ax.scatter(xs=pos[:,0], ys=pos[:,1], zs=pos[:,2],c=Y_cb)
+        # ax.set_title(rf"$\tau$={tau:.1f},s={100*(t_cb-t_sp)/t_sp:1.0f}%")
+        # ax.set_title(f"s={100*(t_cb-t_sp)/t_sp:1.0f}%")
+        # Configure plot
         ax.axis("off")
         ax.set_xlim(np.amin(pos[:,0])*.9, np.amax(pos[:,0])*.9)
         ax.set_ylim(np.amin(pos[:,1])*.9, np.amax(pos[:,1])*.9)
@@ -1036,6 +1036,8 @@ def plot_bunny():
 from ogb.graphproppred import GraphPropPredDataset
 from ogb.nodeproppred import NodePropPredDataset
 def time_ogbn():
+    from scipy.stats import linregress
+
     logger.debug("Loading data from file")
     dataset_name = "ogbn-arxiv"
     # dataset = GraphPropPredDataset(name=dataset_name, root='data/')
@@ -1060,30 +1062,61 @@ def time_ogbn():
     ))
 
     logger.debug("Sampling tau")
-    tau_min = .01
-    tau_max = 2.
-    tau_num = 1
-    tau_all = np.random.default_rng().uniform(low=tau_min,high=tau_max,size=(tau_num,))
+    # Following recommendation of https://arxiv.org/pdf/1710.10321.pdf
+    gam = .95
+    eta = .85
+    l2  = 0.00195894 # eigsh(gl, k=1, which="SM", return_eigenvectors=False)[0]
+    lm  = eigsh(gl, k=1, return_eigenvectors=False)[0]
+    tau_min = -np.log(gam) / np.sqrt(l2*lm)
+    tau_max = -np.log(eta) / np.sqrt(l2*lm)
+    print(f"tau_min={tau_min}")
+    print(f"tau_max={tau_max}")
 
-    logger.debug("Computing diffusion with scipy's method")
-    t_start = time()
-    for tau in tau_all:
-        _ = sparse_expm_multiply(-tau*gl, x)
-    t_stop = time()
-    print(f"t={t_stop-t_start:.2E}")
+    n_run = 0
+    t_sp = 0.
+    t_cb4 = []
+    t_cb8 = []
+    while True:
+        n_run += 1
+        logger.debug(f"Iteration {n_run}")
+        # Compute diffusion with Scipy's method
+        tau = np.random.default_rng().uniform(low=tau_min,high=tau_max,size=(1,))
+        t_start = time()
+        _ = sparse_expm_multiply(-tau[0]*gl, x)
+        t_stop = time()
+        t_sp += t_stop - t_start
+        print(f"t_sp={t_sp/n_run:.2E}")
 
-    logger.debug("Computing diffusion with our method")
+        # Compute diffusion for our method, with 4 values of \tau
+        tau = np.random.default_rng().uniform(low=tau_min,high=tau_max,size=(4,))
+        t_start = time()
+        _ = expm_multiply(gl, x, tau, err=1e-3)
+        t_stop = time()
+        t_cb4.append(t_stop - t_start)
+        print(t_cb4)
+        # print(f"t_cb4={t_cb4/n_run:.2E}")
 
-    t_start = time()
-    _ = expm_multiply_stream(gl, x, tau_all, err=1e-3)
-    t_stop = time()
-    print(f"t={t_stop-t_start:.2E}")
+        # Compute diffusion for our method, with 4 values of \tau
+        tau = np.random.default_rng().uniform(low=tau_min,high=tau_max,size=(8,))
+        t_start = time()
+        _ = expm_multiply(gl, x, tau, err=1e-3)
+        t_stop = time()
+        t_cb8.append(t_stop - t_start)
+        print(t_cb8)
+        # print(f"t_cb8={t_cb4/n_run:.2E}")
+
+        # Compute interpolation
+        res_cb = linregress(
+            np.repeat(np.array([4,8]), n_run),
+            np.concatenate([t_cb4,t_cb8]))
+        print(f"t_cb = {res_cb.intercept:.2E} + n_scale*{res_cb.slope:.2E}")
 
 ################################################################################
 ### Main #######################################################################
 ################################################################################
 
 if __name__=="__main__":
-    test()
+    time_ogbn()
     # plot_bunny()
     # speed_analysis_standford_bunny()
+    # min_K_er()
