@@ -1068,12 +1068,12 @@ def time_ogbn():
 
     logger.debug("Defining tau interval")
     # Following recommendation of https://arxiv.org/pdf/1710.10321.pdf
-    print(eigsh(gl, k=3, which="SM", return_eigenvectors=False))
-    quit()
     gam = .95
     eta = .85
-    l2  = 0.00195894 # eigsh(gl, k=1, which="SM", return_eigenvectors=False)[0]
-    lm  = eigsh(gl, k=1, return_eigenvectors=False)[0]
+    l2  = 3.50654818e-03 # eigsh(gl, k=1, which="SM", return_eigenvectors=False)[0] # 3.50654818e-03 1.46529700e-12
+    lm  = 13162.001602973913 # eigsh(gl, k=1, return_eigenvectors=False)[0]
+    print(f"l2={l2}")
+    print(f"lm={lm}")
     tau_min = -np.log(gam) / np.sqrt(l2*lm)
     tau_max = -np.log(eta) / np.sqrt(l2*lm)
     print(f"tau_min={tau_min}")
