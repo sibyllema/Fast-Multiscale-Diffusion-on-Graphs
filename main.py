@@ -1,33 +1,29 @@
-import os
 import numpy as np
 from time import time
 from tqdm import tqdm
 
-import requests # Performing HTTPS requests
-import zipfile # Manipulate zips
+# Data
+from ogb.nodeproppred import NodePropPredDataset
 
 # Plotting
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from matplotlib import cm # Color map
 plt.rcParams.update({'font.size': 12})
 
 # Useful functions
 from scipy.special import ive # Bessel function
 from scipy.special import factorial
 from scipy.spatial.distance import squareform
-from scipy.linalg import expm, eigh
 from scipy.sparse import load_npz as load_sparse
+from scipy.stats import linregress # Affine regression
 
 # Sparse matrix algebra
 from scipy.sparse import csr_matrix, diags
 from scipy.sparse.linalg import eigsh # Eigenvalues computation
 from scipy.sparse.csgraph import laplacian # Laplacian from sparse matrix
-from scipy.sparse.csgraph import connected_components
-from scipy.sparse.linalg import expm_multiply as sparse_expm_multiply
+from scipy.sparse.linalg import expm_multiply as scipy_expm_multiply
 
 # Logging. errors/warnings handling
-from pdb import set_trace as bp
+from pdb import set_trace as bp # Add breakpoints if you want to inspect things
 import logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.basicConfig(level=logging.INFO,  format='%(asctime)s - %(levelname)s - %(message)s')
@@ -74,270 +70,12 @@ def plot_fancy_error_bar(x, y, ax=None, type="median_quartiles", **kwargs):
         ax.fill_between(x, y_down, y_up, alpha=.3, color=fill_color)
     return plot_
 
-def get_firstmm_db_dataset():
-    logger.debug("### get_firstmm_db_dataset() ###")
-
-    if os.path.exists("data/FIRSTMM_DB"):
-        logger.debug("Dataset already downloaded")
-        return None
-
-    logger.debug("Downloading FIRSTMM_DB dataset.")
-    r = requests.get("https://www.chrsmrrs.com/graphkerneldatasets/FIRSTMM_DB.zip")
-
-    logger.debug("Writing FIRSTMM_DB dataset (as zip).")
-    with open("data/FIRSTMM_DB.zip", "wb") as f:
-        f.write(r.content)
-
-    logger.debug("Unziping FIRSTMM_DB dataset.")
-    with zipfile.ZipFile("data/FIRSTMM_DB.zip", "r") as zip_ref:
-        zip_ref.extractall("data/")
-
-def parse_dortmund_format(path, dataset_name, clean_data=True):
-    """ Parser for attributed graphs from the Dortmund gaph collection (see:
-        https://chrsmrrs.github.io/datasets/docs/datasets/)."""
-    logger.debug("### parse_dortmund_format() ###")
-    logger.debug(f"Loading {dataset_name} dataset.")
-
-    logger.debug("Reading node->graph mapping")
-    with open(path + dataset_name + "_graph_indicator.txt") as f:
-        graph_indicator = []
-        current_graph_num = 0
-        for line in f:
-            graph_num = int(line) - 1
-            graph_indicator.append(graph_num)
-
-    # Auxiliary quantity: total number of graphs
-    n_graphs = np.amax(graph_indicator) + 1
-
-    # Auxiliary quantity: size of each graph (in nodes)
-    graph_sizes = np.zeros( (n_graphs,), dtype=np.int )
-    graph_min_node = np.ones( (n_graphs,), dtype=np.int ) * (len(graph_indicator) + 1)
-    for i,k in enumerate(graph_indicator):
-        graph_sizes[k] += 1
-        graph_min_node[k] = min(i, graph_min_node[k])
-
-    # Auxiliary quantity: are all the graphs the same size?
-    # If yes, building the data require some tweaking (because of automatic
-    # NumPy array formatting).
-    same_size = (len(np.unique(graph_sizes))==1)
-
-    logger.debug("Reading graphs structures")
-    M = []
-    current_graph_num = 0
-    with open(path + dataset_name + "_A.txt") as f:
-        rows = []
-        cols = []
-        for line in f:
-            i,j = line.split(",")
-            i,j = int(i)-1,int(j)-1
-            if current_graph_num != graph_indicator[i]:
-                M.append( csr_matrix(
-                    (np.ones(len(rows)),(rows,cols)),
-                    shape=(graph_sizes[current_graph_num],graph_sizes[current_graph_num])
-                ) )
-                current_graph_num += 1
-                rows = []
-                cols = []
-            rows.append(i - graph_min_node[current_graph_num])
-            cols.append(j - graph_min_node[current_graph_num])
-        else:
-            M.append( csr_matrix(
-                (np.ones(len(rows)),(rows,cols)),
-                shape=(graph_sizes[current_graph_num],graph_sizes[current_graph_num])
-            ) )
-    M = np.array(M)
-
-    if clean_data:
-        to_delete = []
-        for i in range(n_graphs):
-            # Removed graph with more than 1 connected component
-            if connected_components(M[i])[0] > 1:
-                logger.debug(f"Graph {i} is not connected.")
-                to_delete.append(i)
-        M = np.delete(M,to_delete, axis=0)
-
-    return_dict = {"graph_structures": M}
-
-    logger.debug("Reading graph labels")
-    with open(path + dataset_name + "_graph_labels.txt") as f:
-        L = []
-        for line in f:
-            L.append(int(line))
-    L = np.array(L)
-    # Normalise the labels: 0, 1, 2, ...
-    _, L = np.unique(L, return_inverse=True)
-    # Clean data?
-    if clean_data:
-        L = np.delete(L,to_delete, axis=0)
-    # Update return dictionnary
-    return_dict["graph_labels"] = L
-
-    # Read all other files the same way
-    for file in os.scandir(path):
-        # Is the file already read?
-        if not file.name.startswith(dataset_name+"_node"):
-        # if (file.name.endswith("_A.txt")
-        #         or file.name.endswith("_graph_labels.txt")
-        #         or file.name.endswith("_graph_indicator.txt")
-        #         or file.name=="README.txt"):
-            continue
-        logger.debug(f"Reading {file.name}.")
-        with open(file.path) as f:
-            X = []
-            for i,line in enumerate(f):
-                x = line.split(',')
-                x = np.array(x, dtype=np.float64)
-                try:
-                    X[graph_indicator[i]].append(x)
-                except:
-                    X.append([x])
-            if same_size:
-                X = np.array(X, dtype=np.float64).reshape( (n_graphs, graph_sizes[0], -1) )
-            else:
-                X = np.array([np.array(x_list, dtype=np.float64) for x_list in X], dtype=np.object)
-                # X = np.array(X, dtype=object)
-        # Clean data?
-        if clean_data:
-            X = np.delete(X,to_delete, axis=0)
-        # Truncate the file name (to remove useless info).
-        data_name = file.name[len(dataset_name)+1:-4]
-        # Update return dictionnary
-        return_dict[data_name] = X
-
-    # Process node labels
-    if "node_labels" in return_dict.keys():
-        logger.debug("Processing node labels.")
-        # Graph the labels
-        X = return_dict["node_labels"]
-        # Squeeze every array, and convert everything to int
-        X = np.array([np.squeeze(l).astype(int) for l in X], dtype=np.object)
-        # Put everything back in the dictionnary
-        return_dict["node_labels"] = X
-
-    # Some stats
-    logger.debug(f"Found {n_graphs} graphs")
-    logger.debug(f"Found {len(np.unique(L))} classes")
-    logger.debug(f"Found {np.amin(graph_sizes)}-->{np.amax(graph_sizes)} graph sizes")
-
-    return return_dict
-
-################################################################################
-### Krylov subspaces-base method from 1812.10165 (ART) #########################
-################################################################################
-
-def art_expm(A, v, t, toler=1e05, m=10, verbose=False):
-    """ Computes y = exp(-t.A).v approximately.
-
-    Uses the Arnoldi method with the RT (residual time) restarting proposed in
-    M.A. Botchev, L.A. Knizhnerman, ART: adaptive residual-time restarting for
-    Krylov subspace matrix exponential evaluations http://arxiv.org/abs/1812.10165
-
-    Adapted from the MatLab implementation.
-
-    Copyright (c) 2018 by M.A. Botchev
-    Permission to copy all or part of this work is granted, provided that the
-    copies are not made or distributed for resale, and that the copyright notice
-    and this notice are retained.
-    THIS WORK IS PROVIDED ON AN "AS IS" BASIS.  THE AUTHOR PROVIDES NO WARRANTY
-    WHATSOEVER, EITHER EXPRESSED OR IMPLIED, REGARDING THE WORK, INCLUDING
-    WARRANTIES WITH RESPECT TO ITS MERCHANTABILITY OR FITNESS FOR ANY
-    PARTICULAR PURPOSE.
-
-    Input:
-    - A       (n x n)-matrix
-    - v       n-vector
-    - t>0     length of the time interval
-    - toler>0 tolerance
-    - m       maximal Krylov dimension
-    Output:
-    - y       the approximate solution
-    - mvec    number of matrix-vector multiplications done to compute y (not anymore)
-    """
-    n = len(v)
-    V = np.zeros((n,m+1))
-    H = np.zeros((m+1,m))
-
-    convergence = False
-    mvec_count  = 0
-    while not convergence:
-        beta = np.linalg.norm(v)
-        V[:,0] = np.squeeze(v/beta)
-
-        for j in range(m):
-            w = A@V[:,j]
-            mvec_count = mvec_count + 1
-            for i in range(j):
-                H[i,j] = w.T @ V[:,i]
-                w      = w - H[i,j]*V[:,i]
-            H[j+1,j] = np.linalg.norm(w)
-            e1       = np.zeros((j+1,1)); e1[0]  = 1
-            ej       = np.zeros((j+1,1)); ej[-1] = 1
-            s        =  [t*i/6 for i in range(6)]
-            beta_j   = np.empty( (len(s),), dtype=np.float64 )
-            for q in range(len(s)):
-                u         = expm(-s[q] * H[0:j+1,0:j+1]) @ e1 # TODO: faster
-                beta_j[q] = -H[j+1,j] * (ej.T @ u)
-            resnorm = np.linalg.norm(beta_j, np.inf)
-            if resnorm<=toler:
-                if verbose: print(f"j = {j}, resnorm = {resnorm:.2e} - convergence!")
-                convergence = True
-                break
-            elif j+1==m:
-                if verbose: print("j = {j}, resnorm = {resnorm:.2e}")
-                if verbose: print(f"-------- restart after {m} steps")
-                # Find n_tsteps - number of steps to monitor the residual
-                n_tsteps    = 100
-                u           = e1
-                resid_value = 2*toler
-                while resid_value>toler:
-                    expmH       = expm( -(t/n_tsteps) * H[0:j+1,0:j+1] )
-                    u           = expmH @ e1
-                    resid_value = -H[j+1,j] * (ej.T @ u)
-                    if abs(resid_value)<=toler:
-                        u = e1
-                        break
-                    n_tsteps = 2*n_tsteps
-                # keyboard % to plot residual vs t - MB
-                # Compute residual for intermediate time points until its
-                # value exceeds tolerance
-                for k in range(n_tsteps):
-                    u_old       = u
-                    u           = expmH @ u
-                    resid_value = -H[j+1,j] * (ej.T @ u)
-                    if abs(resid_value)>toler:
-                        u_ok  = u_old
-                        t_ok  = (k-1)/n_tsteps * t
-                        y_ok  = V[:,0:j+1] @ (beta * u_ok)
-                        if verbose: print(", time interval reduced by {round(t_ok/t*100)}%%")
-                        t = t - t_ok
-                        v = y_ok
-                        break          # restart
-                break                  # restart
-            V[:,j+1] = w / H[j+1,j]
-
-    y = V[:,0:j+1] @ (beta*u)
-
-    # return y, mvec
-    return y
-
 ################################################################################
 ### Theoretical bound definition ###############################################
 ################################################################################
 
-def h(K,C):
-    """ Equivalent function to g() from "Two polynomial methods of calculating
-        functions of symmetric matrices". """
-    # Swap g and h to experiment with the bound from Durskin89.
-    m = K+1
-    a = 2*C
-    return 2 * (a/2)**m * np.exp(a**2/4) / (factorial(m) * (1- a/(2*(m+1))))
-
 def g(K,C):
-    # True value
     return 2 * np.exp((C**2.)/(K+2)-2*C) * (C**(K+1))/(factorial(K)*(K+1-C))
-    # # Upper bound, maybe more stable
-    # x = C*C/(K+2) - 2*C + (K+1)*np.log(C) - (K+.5)*np.log(K) + K
-    # return np.sqrt(2/np.pi) * np.exp(x)
 
 def get_bound_eps_generic(phi, x, tau, K):
     C  = tau*phi/2.
@@ -351,9 +89,17 @@ def get_bound_eta_generic(phi, x, tau, K):
 def get_bound_eta_specific(phi, x, tau, K):
     C  = tau*phi/2.
     n  = len(x)
-    a1 = np.sum(x)
-    assert(a1 != 0.)
-    return g(K,C)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
+    if len(x.shape)==1:
+        # Case 1: X has shape (n,), it is one signal.
+        a1 = np.sum(x)
+        assert(a1 != 0.)
+        return g(K,C)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
+    elif len(x.shape)==2:
+        # Case 2: X has shape (n,dim), it is multiple signals.
+        # Take the maximum bound for every signal
+        a1 = np.sum(x, axis=0)
+        assert(not np.any(a1==0.))
+        return g(K,C)**2. * n * np.amax(np.linalg.norm(x, axis=0)**2. / (a1**2.))
 
 def E(K, C):
     b = 2 / (1 + np.sqrt(5))
@@ -370,9 +116,15 @@ def get_bound_bergamaschi_generic(phi, x, tau, K):
 def get_bound_bergamaschi_specific(phi, x, tau, K):
     C  = tau*phi/2.
     n  = len(x)
-    a1 = np.sum(x)
-    assert(a1 != 0.)
-    return 4 * E(K,C)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
+    # Same branch as in get_bound_eta_specific()
+    if len(x.shape)==1:
+        a1 = np.sum(x)
+        assert(a1 != 0.)
+        return 4 * E(K,C)**2. * n * np.linalg.norm(x)**2. / (a1**2.)
+    elif len(x.shape)==2:
+        a1 = np.sum(x, axis=0)
+        assert(not np.any(a1==0.))
+        return 4 * E(K,C)**2. * n * np.amax(np.linalg.norm(x, axis=0)**2. / (a1**2.))
 
 def reverse_bound(f, phi, x, tau, err):
     """ Returns the minimal K such that f(L,x,tau,K) <= err. """
@@ -380,11 +132,11 @@ def reverse_bound(f, phi, x, tau, err):
     C   = tau*phi/2.
     K_min = max(1,int(C))
 
-    # Step 0: is E(C-1) enough?
+    # Step 0: is C-1 enough?
     if f(phi,x,tau,K_min) <= err:
         return K_min
 
-    # Step 1: searches any K such that f(*args) <= err.
+    # Step 1: searches a K such that f(*args) <= err, by doubling step size.
     K_max = 2 * K_min
     while f(phi,x,tau,K_max) > err:
         K_min = K_max
@@ -402,7 +154,7 @@ def reverse_bound(f, phi, x, tau, err):
 def reverse_eps_K(L, x, tau, err):
     """ Returns the minimum K required to achieve a given error (relative to the
         input). """
-    y_ref = sparse_expm_multiply(-tau*L, x)
+    y_ref = scipy_expm_multiply(-tau*L, x)
     K = 1
     def get_eps(a,b):
         return (np.linalg.norm(a-b)/np.linalg.norm(x))**2.
@@ -413,7 +165,7 @@ def reverse_eps_K(L, x, tau, err):
 def reverse_eta_K(L, x, tau, err):
     """ Returns the minimum K required to achieve a given error (relative to the
         input). """
-    y_ref = sparse_expm_multiply(-tau*L, x)
+    y_ref = scipy_expm_multiply(-tau*L, x)
     K = 1
     def get_eta(a,b):
         return (np.linalg.norm(a-b)/np.linalg.norm(a))**2.
@@ -425,97 +177,35 @@ def reverse_eta_K(L, x, tau, err):
 ### Our method to compute the diffusion ########################################
 ################################################################################
 
-def compute_chebychev_pol(X, L, phi, K):
-    """ Compute the Tk(L).X, where Tk are the K+1 first Chebychev polynoms. """
-    N, d = X.shape
-    T = np.empty((K + 1, N, d), dtype=np.float64)
-    # Initialisation
-    T[0] = X
-    T[1] = (1 / phi) * L @ X - T[0]
-    # Recursive computation of T[2], T[3], etc.
-    for j in range(2, K + 1):
-        T[j] = (2 / phi) * L @ T[j-1] - 2 * T[j-1] - T[j-2]
-    return T
-
 def compute_chebychev_coeff_all(phi, tau, K):
-    """ Compute recursively the K+1 Chebychev coefficients for our functions. """
+    """ Compute the K+1 Chebychev coefficients for our functions. """
     return 2*ive(np.arange(0, K+1), -tau * phi)
-
-# def expm_multiply(L, X, tau, K=None, err=1e-32):
-#     """ Computes the action of exp(-t*L) on X for all t in X."""
-#     # Compute phi = l_max/2
-#     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-#     # Check if tau is a single value, a list or a ndarray.
-#     if isinstance(tau, (float, int)):
-#         # Get minimal K to go below the desired error
-#         if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
-#         # Compute Chebychev polynomials
-#         poly = compute_chebychev_pol(X, L, phi, K)
-#         # Compute Chebychev coefficients
-#         coeff = compute_chebychev_coeff_all(phi, tau, K)
-#         # Perform linear combination
-#         Y = .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
-#         return Y
-#     elif isinstance(tau, list):
-#         # Same as earlier, but iterate on a list.
-#         if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, max(tau), err)
-#         poly = compute_chebychev_pol(X, L, phi, K)
-#         coeff_list = [compute_chebychev_coeff_all(phi, t, K) for t in tau]
-#         Y_list = [.5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T for coeff in coeff_list]
-#         return Y_list
-#     elif isinstance(tau, np.ndarray):
-#         if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, np.amax(tau), err)
-#         poly = compute_chebychev_pol(X, L, phi, K)
-#         f = lambda t: compute_chebychev_coeff_all(phi, t, K)
-#         g = lambda coeff: .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
-#         h = lambda t: g(f(t))
-#         # Yes I know, it' s a for loop.
-#         # I can't make np.vectorize work >.<
-#         out = np.empty(tau.shape+X.shape, dtype=X.dtype)
-#         for index,t in np.ndenumerate(tau):
-#             out[index] = h(t)
-#         return out
-#     else:
-#         print(f"expm_multiply(): unsupported data type for tau ({type(tau)})")
-
-def get_diffusion_fun(L, X, K=None):
-    """ Creates a function to compute exp(-t*L) on X, for t given later."""
-    # If K is not provided, fall back on default value.
-    if K is None:
-        K = K_base
-    # Compute phi = l_max/2
-    phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-    # Compute Chebychev polynomials
-    poly = compute_chebychev_pol(X, L, phi, K)
-    # Define a function to be applied for multipel values of tau
-    def f(tau):
-        coeff = compute_chebychev_coeff_all(phi, tau, K)
-        Y = .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
-        return Y
-    return f
 
 def expm_multiply(L, X, tau, K=None, err=1e-32):
     # Get statistics
     phi = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
     N, d = X.shape
+    # Case 1: tau is a single value
     if isinstance(tau, (float, int)):
         # Compute minimal K
         if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, np.amax(tau), err)
         # Compute coefficients (they should all fit in memory, no problem)
         coeff = compute_chebychev_coeff_all(phi, tau, K)
-        # Initialize the accumulator with only the first coeff/polynomial
+        # Initialize the accumulator with only the first coeff*polynomial
         T0 = X
         Y  = .5 * coeff[0] * T0
-        # Add the second coeff/polynomial to the accumulator
+        # Add the second coeff*polynomial to the accumulator
         T1 = (1 / phi) * L @ X - T0
         Y  = Y + coeff[1] * T1
-        # Add the next coeff/polynomial
+        # Recursively add the next coeff*polynomial
         for j in range(2, K + 1):
             T2 = (2 / phi) * L @ T1 - 2 * T1 - T0
             Y  = Y + coeff[j] * T2
             T0 = T1
             T1 = T2
         return Y
+    # Case 2: tau is, in fact, a list of tau
+    # In this case, we return the list of the diffusions as these times
     elif isinstance(tau, list):
         if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, max(tau), err)
         coeff_list = [compute_chebychev_coeff_all(phi, t, K) for t in tau]
@@ -529,6 +219,7 @@ def expm_multiply(L, X, tau, K=None, err=1e-32):
             T0 = T1
             T1 = T2
         return Y_list
+    # Case 3: tau is a numpy array
     elif isinstance(tau, np.ndarray):
         # Compute the order K corresponding to the required error
         if K is None: K = reverse_bound(get_bound_eta_specific, phi, X, np.amax(tau), err)
@@ -536,16 +227,16 @@ def expm_multiply(L, X, tau, K=None, err=1e-32):
         coeff = np.empty(tau.shape+(K+1,), dtype=np.float64)
         for index,t in np.ndenumerate(tau):
             coeff[index] = compute_chebychev_coeff_all(phi, t, K)
-        # Compute the output for just the first polynomial/coefficient
+        # Compute the output for just the first polynomial*coefficient
         T0 = X
         Y = np.empty(tau.shape+X.shape, dtype=X.dtype)
         for index,t in np.ndenumerate(tau):
             Y[index] = .5 * coeff[index][0] * T0
-        # Add the second polynomial/coefficient
+        # Add the second polynomial/*oefficient
         T1 = (1 / phi) * L @ X - T0
         for index,t in np.ndenumerate(tau):
             Y[index] = Y[index] + coeff[index][1] * T1
-        # Recursively add the others polynomials/coefficients
+        # Recursively add the others polynomials*coefficients
         for j in range(2, K + 1):
             T2 = (2 / phi) * L @ T1 - 2 * T1 - T0
             for index,t in np.ndenumerate(tau):
@@ -554,7 +245,7 @@ def expm_multiply(L, X, tau, K=None, err=1e-32):
             T1 = T2
         return Y
     else:
-        print(f"expm_multiply_stream(): unsupported data type for tau ({type(tau)})")
+        print(f"expm_multiply(): unsupported data type for tau ({type(tau)})")
 
 ################################################################################
 ### Data #######################################################################
@@ -563,12 +254,12 @@ def expm_multiply(L, X, tau, K=None, err=1e-32):
 def sample_er(N, p, gamma):
     """ Sample an Erdos-Reyni graph (as a laplacian) and a 1d gaussian signal on
         its nodes. """
-    # Sample the adjacency matrix, in a compressed fashio (only generates the
+    # Sample the adjacency matrix, in a compressed fashion (only generates the
     # top triangular part, as a 1-dimensional vector).
     A_compressed = np.random.choice(2, size=(N*(N-1)//2,), p=[1.-p,p])
     # Compute the graph's combinatorial laplacian
     L = laplacian(csr_matrix(squareform(A_compressed), dtype=np.float64))
-    # Sample the features
+    # Sample the signal
     X = np.random.randn(N,1) * gamma
     # Conclude
     return L, X
@@ -578,105 +269,27 @@ def get_er(k, N=200, p=.05, gamma=1.):
     for i in range(k):
         yield sample_er(N, p, gamma)
 
-def get_firstmm_db(k):
-    """ Iterator. Yields k attributed graphs from the FIRSTMM_DB dataset. """
-    data_dict = parse_dortmund_format(f"data/FIRSTMM_DB/", "FIRSTMM_DB", clean_data=False)
-    N = len(data_dict["node_attributes"])
-    p = np.random.permutation(N)
-    X_all = data_dict["node_attributes"][p[:k]]
-    A_all = data_dict["graph_structures"][p[:k]]
-    L_all = [laplacian(A) for A in A_all]
-    return zip(L_all, X_all)
-
 def get_standford_bunny():
     L = load_sparse("data/standford_bunny_laplacian.npz")
     X = np.load("data/standford_bunny_coords.npy")
     return L,X
 
 ################################################################################
-### How much time do the individual steps take #################################
-################################################################################
-
-def time_steps():
-    n_graphs = 10
-    n_tau    = 10
-    tau_all  = 10**np.linspace(-2.,0.,num=n_tau)
-    err      = 1e-5
-
-    time_eig  = np.empty((n_tau,n_graphs), dtype=np.float64)
-    time_K    = np.empty((n_tau,n_graphs), dtype=np.float64)
-    time_poly = np.empty((n_tau,n_graphs), dtype=np.float64)
-    time_coef = np.empty((n_tau,n_graphs), dtype=np.float64)
-    time_comb = np.empty((n_tau,n_graphs), dtype=np.float64)
-
-    pbar = tqdm(total=n_graphs*n_tau)
-    for i,(L,X) in enumerate(get_er(n_graphs, N=1000)):
-        for j,tau in enumerate(tau_all):
-            # Largest eigenvalue computation
-            t_start = time()
-            phi     = eigsh(L, k=1, return_eigenvectors=False)[0] / 2
-            t_stop  = time()
-            time_eig[j,i] = t_stop - t_start
-
-            # Compute required K
-            t_start = time()
-            K       = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
-            t_stop  = time()
-            time_K[j,i] = t_stop - t_start
-
-            # Compute the polynomials
-            t_start = time()
-            poly    = compute_chebychev_pol(X, L, phi, K)
-            t_stop  = time()
-            time_poly[j,i] = t_stop - t_start
-
-            # Compute the coefficients
-            t_start = time()
-            coeff   = compute_chebychev_coeff_all(phi, tau, K)
-            t_stop  = time()
-            time_coef[j,i] = t_stop - t_start
-
-            # Combine polynomials & coefficients
-            t_start = time()
-            Y       = .5 * coeff[0] * poly[0] + (poly[1:].T @ coeff[1:]).T
-            t_stop  = time()
-            time_comb[j,i] = t_stop - t_start
-
-            pbar.update(1)
-    pbar.close()
-
-    plot_fancy_error_bar(tau_all, time_eig,  label="First eigenvalue")
-    plot_fancy_error_bar(tau_all, time_K,    label="Order K")
-    plot_fancy_error_bar(tau_all, time_poly, label="Polynomials")
-    plot_fancy_error_bar(tau_all, time_coef, label="Coefficients")
-    plot_fancy_error_bar(tau_all, time_comb, label="Combination")
-
-    plt.xscale("log")
-    plt.grid()
-    plt.legend()
-    plt.show()
-
-################################################################################
 ### Theoretical bound analysis #################################################
 ################################################################################
 
-def min_K_er():
+def minimal_K_against_tau():
     """ Display the minimum K to achieve a desired accuracy against tau. """
-    logger.debug("### min_K_er() ###")
+    logger.debug("### minimal_K_against_tau() ###")
     n_graphs = 100
     n_val    = 25
     tau_all  = 10**np.linspace(-2.,2.,num=n_val)
-    # tau      = 1.
-    # err_all  = 10**np.linspace(-16, -3, num=n_val)
     err      = 1e-5
-    bound_V8_all  = np.empty( (n_graphs,n_val), dtype=np.float64 )
-    bound_V9_all  = np.empty( (n_graphs,n_val), dtype=np.float64 )
-    bound_VI1_all = np.empty( (n_graphs,n_val), dtype=np.float64 )
-    bound_VI3_all = np.empty( (n_graphs,n_val), dtype=np.float64 )
+    bound_18_all  = np.empty( (n_graphs,n_val), dtype=np.float64 )
+    bound_19_all  = np.empty( (n_graphs,n_val), dtype=np.float64 )
+    bound_21_all = np.empty( (n_graphs,n_val), dtype=np.float64 )
+    bound_23_all = np.empty( (n_graphs,n_val), dtype=np.float64 )
     real_K_all    = np.empty( (n_graphs,n_val), dtype=np.float64 )
-
-    # avg_lmax = 0.
-    # avg_tlim = 0.
 
     logger.debug("Computing minimum K")
     pbar = tqdm(total=n_graphs*n_val)
@@ -684,118 +297,55 @@ def min_K_er():
         # Collect statistics
         lmax   = eigsh(L, k=1, return_eigenvectors=False)[0]
         phi    = lmax / 2
-        # n      = len(X)
-        # x_norm = np.linalg.norm(X)
-        # a1     = np.abs(np.sum(X))
-        # avg_lmax += lmax
-        # avg_tlim += 1/(2*lmax) * np.log(n * x_norm**2. / a1**2.)
         for j,tau in enumerate(tau_all):
-        # for j,err in enumerate(err_all):
-            bound_V8_all[i,j]  = reverse_bound(get_bound_eta_generic, phi, X, tau, err)
-            bound_V9_all[i,j]  = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
-            bound_VI1_all[i,j] = reverse_bound(get_bound_bergamaschi_specific, phi, X, tau, err)
-            bound_VI3_all[i,j] = reverse_bound(get_bound_bergamaschi_generic, phi, X, tau, err)
+            bound_18_all[i,j]  = reverse_bound(get_bound_eta_generic, phi, X, tau, err)
+            bound_19_all[i,j]  = reverse_bound(get_bound_eta_specific, phi, X, tau, err)
+            bound_21_all[i,j] = reverse_bound(get_bound_bergamaschi_specific, phi, X, tau, err)
+            bound_23_all[i,j] = reverse_bound(get_bound_bergamaschi_generic, phi, X, tau, err)
             real_K_all[i,j]    = reverse_eta_K(L, X, tau, err)
             pbar.update(1)
     pbar.close()
 
-    # avg_lmax /= n_graphs
-    # avg_tlim /= n_graphs
+    logger.debug("Plotting data")
+    plot_fancy_error_bar(tau_all, bound_18_all.T, label=f"Bound (18) (Our, generic)", linestyle="solid", marker="o", color="blue")
+    plot_fancy_error_bar(tau_all, bound_19_all.T, label=f"Bound (19) (Our, specific)", linestyle="solid", marker="x", color="blue")
+    plot_fancy_error_bar(tau_all, bound_21_all.T, label=f"Bound (21) (Ref [11], specific)", linestyle="dotted", marker="x", color="red")
+    plot_fancy_error_bar(tau_all, bound_23_all.T, label=f"Bound (23) (Ref [11], generic)", linestyle="dotted", marker="o", color="red")
+    plot_fancy_error_bar(tau_all, real_K_all.T,   label=f"Real required K", color="black")
 
-    # Plot all this
-    plot_fancy_error_bar(tau_all, bound_V8_all.T, label=f"Bound III.8 (our, generic)", linestyle="solid", marker="o", color="blue")
-    plot_fancy_error_bar(tau_all, bound_V9_all.T, label=f"Bound III.9 (our, specific)", linestyle="solid", marker="x", color="blue")
-    plot_fancy_error_bar(tau_all, bound_VI1_all.T, label=f"Bound IV.1 (Bergamaschi's, specific)", linestyle="dotted", marker="x", color="red")
-    plot_fancy_error_bar(tau_all, bound_VI3_all.T, label=f"Bound IV.3 (Bergamaschi's, generic)", linestyle="dotted", marker="o", color="red")
-    plot_fancy_error_bar(tau_all, real_K_all.T, label=f"Real required K", color="black")
-
-    # # Plot relevant tau values
-    # plt.plot([tau_all[0],tau_all[-1]],[tau_all[0]*avg_lmax,tau_all[-1]*avg_lmax],linestyle="dotted", color="black", label="Bergamaschi's limit")
-    # plt.vlines([avg_tlim], ymin=1, ymax=100, linestyle="dashed", color="black", label=r"$\tau_{lim}$")
-
-    # Configure and display plot
+    logger.debug("Configuring plot")
     plt.xlabel(r"$\tau$")
     plt.ylabel("K")
     plt.xscale("log")
     plt.yscale("log")
     plt.grid()
     plt.legend()
-    plt.show()
 
-################################################################################
-### Speed // ER // Increasing set of tau #######################################
-################################################################################
-
-def speed_for_set_of_tau():
-    logger.debug("### speed_for_set_of_tau() ###")
-    n_graphs = 100
-    n_rep    = 6
-    tau_log_min = -5.
-    tau_log_max = -2.
-
-    time_sp = np.zeros((n_rep,n_graphs))
-    time_ar = np.zeros((n_rep,n_graphs))
-    time_cb = np.zeros((n_rep,n_graphs))
-
-    pbar = tqdm(total=n_graphs*n_rep)
-    for i,(L,X) in enumerate(get_er(n_graphs, N=400, p=.05)):
-        for j in range(n_rep):
-            # Number of tau values to pick, beyind the max & min ones
-            rep = j
-            # All tau values.
-            tau_all = 10**np.linspace(tau_log_min, tau_log_max,num=rep+2)
-            # Compute scipy's method
-            t_start = time()
-            for tau in tau_all:
-                _ = sparse_expm_multiply(-tau*L, X)
-            t_stop = time()
-            time_sp[j,i] += t_stop - t_start
-            # Compute ART's method
-            t_start = time()
-            for tau in tau_all:
-                _ = art_expm(L, X, tau, toler=1e-5, m=60)
-            t_stop = time()
-            time_ar[j,i] += t_stop - t_start
-            # Compute our method
-            t_start = time()
-            _ = expm_multiply(L, X, tau_all, err=1e-5)
-            t_stop = time()
-            time_cb[j,i] += t_stop - t_start
-
-            pbar.update(1)
-    pbar.close()
-
-    x = list(range(2, n_rep+2))
-    plot_fancy_error_bar(x, time_sp, label="Scipy")
-    plot_fancy_error_bar(x, time_cb, label="Chebychev")
-    plot_fancy_error_bar(x, time_ar, label="ART (Krylov)")
-
-    plt.xlabel(r"Number of $\tau$ values")
-    plt.ylabel("Time (s)")
-    plt.legend()
-    plt.grid()
+    logger.debug("Displaying plot")
     plt.show()
 
 ################################################################################
 ### Speed and precision with tau increasing ####################################
 ################################################################################
 
-def speed_analysis_standford_bunny():
+def speed_standford_bunny():
+    logger.debug("### speed_standford_bunny() ###")
+    logger.debug("Defining experiment parameters")
     # Experiment parameters
-    n_runs      = 10 # Number of runs to average performances over
+    n_runs      = 100 # Number of runs to average performances over
     tau_log_min = -3.
     tau_log_max = 1.
-    tau_num_all = np.arange(1,10)
-    # tau_num_all = np.concatenate( [np.array([1]), 5*np.arange(1,6)] )
+    tau_num_all = 2*np.arange(1,10)
 
-    # How much time does each method takes
+    logger.debug("Allocating memory for results")
     time_sp = np.empty((len(tau_num_all),n_runs,), dtype=np.float64)
-    # time_ar = np.empty((5,n_runs,), dtype=np.float64)
     time_cb = np.empty((len(tau_num_all),n_runs,), dtype=np.float64)
 
-    # Loop over graphs
+    logger.debug("Loading data")
     L,_ = get_standford_bunny()
     N,_ = L.shape
+
+    logger.debug("Case 1: tau values are linearly spaced")
     pbar = tqdm(total=n_runs*len(tau_num_all))
     for i in range(n_runs):
         # Build a standard signal/initial heat value: 1 on a node, 0 elsewhere
@@ -805,30 +355,49 @@ def speed_analysis_standford_bunny():
 
         # Iterate over number of \tau values
         for j,tau_num in enumerate(tau_num_all):
-            ### linearly-spaced:
-            tau_list = [10**tau_log_min/2+10**tau_log_max/2] if tau_num==1 else np.linspace(10**tau_log_min, 10**tau_log_max, num=tau_num)
-            # ### log-uniformly sampled:
-            # tau_list = 10.**np.random.default_rng().uniform(low=tau_log_min, high=tau_log_max, size=(tau_num,))
-            # ### uniformly sampled:
-            # tau_list = np.random.default_rng().uniform(low=10.**tau_log_min, high=10.**tau_log_max, size=(tau_num,))
-
             # Time Scipy's method
             t_start = time()
-            # for tau in tau_list:
-            #     _ = sparse_expm_multiply(-tau*L, X)
             if tau_num==1:
-                _ = sparse_expm_multiply(tau_list[0]*L, X)
+                _ = scipy_expm_multiply(tau_list[0]*L, X)
             else:
-                _ = sparse_expm_multiply(-L, X, start=10**tau_log_min, stop=10**tau_log_max, num=tau_num, endpoint=True)
+                _ = scipy_expm_multiply(-L, X, start=10**tau_log_min, stop=10**tau_log_max, num=tau_num, endpoint=True)
             t_stop = time()
             time_sp[j,i] = t_stop - t_start
 
-            # # Time ART's method
-            # t_start = time()
-            # for tau in tau_list:
-            #     _ = art_expm(L, X, tau, toler=1e-5, m=60)
-            # t_stop = time()
-            # time_ar[j,i] = t_stop - t_start
+            # Time our method
+            t_start = time()
+            tau_list = [10**tau_log_min/2+10**tau_log_max/2] if tau_num==1 else np.linspace(10**tau_log_min, 10**tau_log_max, num=tau_num)
+            _ = expm_multiply(L, X, tau_list, err=1e-5)
+            t_stop = time()
+            time_cb[j,i] = t_stop - t_start
+
+            pbar.update(1)
+    pbar.close()
+
+    logger.debug("Results:")
+    res_sp = linregress(np.repeat(tau_num_all, n_runs), time_sp.flatten())
+    res_cb = linregress(np.repeat(tau_num_all, n_runs), time_cb.flatten())
+    logger.debug(f"sp: t = {res_sp.intercept:.2E} + n_scale*{res_sp.slope:.2E}")
+    logger.debug(f"cb: t = {res_cb.intercept:.2E} + n_scale*{res_cb.slope:.2E}")
+
+    logger.debug("Case 1: tau values are uniformly sampled at random")
+    pbar = tqdm(total=n_runs*len(tau_num_all))
+    for i in range(n_runs):
+        # Build a standard signal/initial heat value: 1 on a node, 0 elsewhere
+        idx = np.random.default_rng().integers(low=0,high=N)
+        X = np.zeros((N,1), dtype=np.float64)
+        X[idx] = 1.
+
+        # Iterate over number of \tau values
+        for j,tau_num in enumerate(tau_num_all):
+            tau_list = np.random.default_rng().uniform(low=10.**tau_log_min, high=10.**tau_log_max, size=(tau_num,))
+
+            # Time Scipy's method
+            t_start = time()
+            for tau in tau_list:
+                _ = scipy_expm_multiply(-tau*L, X)
+            t_stop = time()
+            time_sp[j,i] = t_stop - t_start
 
             # Time our method
             t_start = time()
@@ -839,208 +408,20 @@ def speed_analysis_standford_bunny():
             pbar.update(1)
     pbar.close()
 
-    # Plot everything
-    plot_fancy_error_bar(tau_num_all, time_sp, label="Scipy", color="red")
-    plot_fancy_error_bar(tau_num_all, time_cb, label="Chebychev", color="blue")
-    # # plot_fancy_error_bar(tau_num_all, time_ar, label="ART (Krylov)", color="green")
-    #
-    # Configure plot
-    plt.grid()
-    plt.legend()
-    plt.xlabel(r"Number of scales $\tau$")
-    plt.ylabel("time (s)")
-    plt.show()
-
-    from scipy.stats import linregress
+    logger.debug("Results:")
     res_sp = linregress(np.repeat(tau_num_all, n_runs), time_sp.flatten())
     res_cb = linregress(np.repeat(tau_num_all, n_runs), time_cb.flatten())
-    print(f"sp: t = {res_sp.intercept:.2E} + n_scale*{res_sp.slope:.2E}")
-    print(f"cb: t = {res_cb.intercept:.2E} + n_scale*{res_cb.slope:.2E}")
-
-    # print(f"Avg/std times for {n_runs} iterations and {n_tau_val} scales:")
-    # print(f"{np.average(time_sp):.4f}+-{np.std(time_sp):.4f} (Scipy)")
-    # print(f"{np.average(time_ar):.4f}+-{np.std(time_ar):.4f} (ART)")
-    # print(f"{np.average(time_cb):.4f}+-{np.std(time_cb):.4f} (Chebychev)")
-    # print("Note:")
-    # print(f"- l_max={eigsh(L, k=1, return_eigenvectors=False)[0]}")
-    # print(f"- n_nodes={N}")
-
-################################################################################
-### 3d diagram tau/K/error #####################################################
-################################################################################
-
-def generate_K_tau_err_figure():
-    # Experiment parameters
-    n_K_val   = 15 # Number of values of K
-    n_tau_val = 20 # Number of tau values
-    n_graphs  = 10 # Number of graphs to average the performance over
-    K_list    = np.arange(1,1+n_K_val)
-    tau_list  = 10**np.linspace(-5.,1., num=n_tau_val)
-
-    # Experiment results
-    err_all_1 = np.empty((n_K_val,n_tau_val,n_graphs), dtype=np.float64)
-    err_all_2 = np.empty((n_K_val,n_tau_val,n_graphs), dtype=np.float64)
-    err_ref   = np.empty((n_K_val,n_tau_val,n_graphs), dtype=np.float64)
-
-    pbar=tqdm(total=n_K_val*n_tau_val*n_graphs)
-    for k,(L,X) in enumerate(get_firstmm_db(n_graphs)):
-        for i,K in enumerate(K_list):
-            for j,tau in enumerate(tau_list):
-                # Compute and store first bound
-                err_all_1[i,j,k] = get_bound_eta_generic(L, tau, K)
-                # Compute and store second bound
-                err_all_2[i,j,k] = get_bound_eta_specific(L, X, tau, K)
-                # Compute and store eta (MSE on output)
-                y_che = expm_multiply(L, X, tau, K)
-                y_ref = sparse_expm_multiply(-tau*L, X)
-                err_ref[i,j,k] = (np.linalg.norm(y_che-y_ref) / np.linalg.norm(y_ref))**2.
-                pbar.update(1)
-    pbar.close()
-
-    # Average errors over all sampled graphs
-    err_all_1 = np.average(err_all_1, axis=-1)
-    err_all_2 = np.average(err_all_2, axis=-1)
-    err_ref   = np.average(err_ref, axis=-1)
-
-    # 3D plot the error landscapes
-    fig = plt.figure()
-    X,Y = np.meshgrid(K_list, np.log10(tau_list), indexing="ij")
-
-    # First bound
-    ax = fig.add_subplot(131, projection='3d')
-    ax.plot_surface(X, Y, np.log10(err_all_1), cmap=cm.coolwarm)
-    ax.set_xlabel("K", rotation=-25)
-    ax.set_ylabel(r"$\log_{10}(\tau^t)$")
-    ax.set_zlabel(r"$\log_{10}(bound 1)$", rotation=60)
-    # Second bound
-    ax = fig.add_subplot(132, projection='3d')
-    ax.plot_surface(X, Y, np.log10(err_all_2), cmap=cm.coolwarm)
-    ax.set_xlabel("K", rotation=-25)
-    ax.set_ylabel(r"$\log_{10}(\tau^t)$")
-    ax.set_zlabel(r"$\log_{10}(bound 2)$", rotation=60)
-    # Real error
-    ax = fig.add_subplot(133, projection='3d')
-    ax.plot_surface(X, Y, np.log10(err_ref), cmap=cm.coolwarm)
-    ax.set_xlabel("K", rotation=-25)
-    ax.set_ylabel(r"$\log_{10}(\tau^t)$")
-    ax.set_zlabel(r"$\log_{10}(\eta)$", rotation=60)
-
-    plt.show()
-
-################################################################################
-### 3d plot of diffusion on standford bunny ####################################
-################################################################################
-
-from mpl_toolkits.mplot3d import Axes3D
-def plot_bunny():
-    # Load data
-    L,pos = get_standford_bunny()
-    N,_ = pos.shape
-
-    # Re-order 3d coordinates, for plotting later
-    pos[:,1],pos[:,2] = -pos[:,2],pos[:,1].copy()
-
-    # Create a (Dirac) signal
-    X = np.zeros((N,1), dtype=np.float64)
-    X[0] = 1.
-
-    # Prepare the figure and the expriment parameters
-    fig = plt.figure()
-    tau_all = np.linspace(.001, 10, num=8)
-    err = 1e-5
-
-    # Diffuse the signal with our method
-    for i,tau in enumerate(tau_all):
-        # Prepare plot
-        ax = fig.add_subplot(240+i+1, projection='3d')
-        # Get diffusion with scipy
-        t_start = time()
-        Y_cb  = expm_multiply(L, X, tau, err=err)
-        t_stop = time()
-        t_cb = t_stop - t_start
-        # Get diffusion with our method
-        t_start = time()
-        Y_sp = sparse_expm_multiply(-tau*L, X)
-        t_stop = time()
-        t_sp = t_stop - t_start
-        # Plot
-        ax.scatter(xs=pos[:,0], ys=pos[:,1], zs=pos[:,2],c=Y_cb)
-        # ax.set_title(rf"$\tau$={tau:.1f},s={100*(t_cb-t_sp)/t_sp:1.0f}%")
-        # ax.set_title(f"s={100*(t_cb-t_sp)/t_sp:1.0f}%")
-        # Configure plot
-        ax.axis("off")
-        ax.set_xlim(np.amin(pos[:,0])*.9, np.amax(pos[:,0])*.9)
-        ax.set_ylim(np.amin(pos[:,1])*.9, np.amax(pos[:,1])*.9)
-        ax.set_zlim(np.amin(pos[:,2])*.9, np.amax(pos[:,2])*.9)
-
-    # # Diffuse the signal twice (+ compute the time it takes):
-    # # - once with Scipy's default method
-    # # - once with our method, with a low degree K
-    # tau = 1.
-    # err = 1e-2
-    # Y_sp = sparse_expm_multiply(-tau*L,X)
-    # Y_cb = expm_multiply(L, X, tau, err=err)
-
-    # Plot both signals
-    # ax_sp = fig.add_subplot(121, projection='3d')
-    # ax_cb = fig.add_subplot(122, projection='3d')
-    # ax_sp.scatter(xs=pos[:,0], ys=pos[:,1], zs=pos[:,2],c=Y_sp)
-    # ax_cb.scatter(xs=pos[:,0], ys=pos[:,1], zs=pos[:,2],c=Y_cb)
-
-    # Configure plot
-    # ax_sp.axis("off")
-    # ax_cb.axis("off")
-
-    # ax_sp.set_xlim(np.amin(pos[:,0]), np.amax(pos[:,0]))
-    # ax_cb.set_xlim(np.amin(pos[:,0]), np.amax(pos[:,0]))
-    # ax_sp.set_ylim(np.amin(-pos[:,2]), np.amax(-pos[:,2]))
-    # ax_cb.set_ylim(np.amin(-pos[:,2]), np.amax(-pos[:,2]))
-    # ax_sp.set_zlim(np.amin(pos[:,1]), np.amax(pos[:,1]))
-    # ax_cb.set_zlim(np.amin(pos[:,1]), np.amax(pos[:,1]))
-
-    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
-
-    # Save abd display plot
-    plt.savefig("fig/bunny.pdf",bbox_inches="tight")
-    plt.show()
-
-    quit()
-
-    # Repeat many times the computations, to get the average computation time.
-    # Note that it is important to alternate between the two methods to get a
-    # stable result (else the speed-up vary wildly. Probably a cache thing, it's
-    # a difficult to tame beast).
-    n_runs = 1000
-    t_sp = 0.
-    t_cb = 0.
-    for _ in range(n_runs):
-        t_start = time()
-        Y_sp = sparse_expm_multiply(-tau*L,X)
-        t_stop = time()
-        t_sp += t_stop-t_start
-
-        t_start = time()
-        Y_cb = expm_multiply(L, X, tau, err=err)
-        t_stop = time()
-        t_cb += t_stop-t_start
-
-    print(f"t={t_sp/n_runs:.2E} (Scipy)")
-    print(f"t={t_cb/n_runs:.2E} (Chebychev, eta_K <= {err})")
-
-    print(f"Speed-up={100*(t_cb-t_sp)/t_sp:.0f}%")
+    logger.debug(f"sp: t = {res_sp.intercept:.2E} + n_scale*{res_sp.slope:.2E}")
+    logger.debug(f"cb: t = {res_cb.intercept:.2E} + n_scale*{res_cb.slope:.2E}")
 
 ################################################################################
 ### Timing diffusion at multiple scales in a big graph #########################
 ################################################################################
 
-from ogb.graphproppred import GraphPropPredDataset
-from ogb.nodeproppred import NodePropPredDataset
-def time_ogbn():
-    from scipy.stats import linregress
-
+def speed_ogbn_arxiv():
+    logger.debug("### speed_ogbn_arxiv() ###")
     logger.debug("Loading data from file")
     dataset_name = "ogbn-arxiv"
-    # dataset = GraphPropPredDataset(name=dataset_name, root='data/')
     dataset = NodePropPredDataset(name=dataset_name, root='data/')
 
     logger.debug("Building graph labels")
@@ -1066,30 +447,30 @@ def time_ogbn():
     # Build the laplacian from the adjacency matrix
     gl = laplacian(a)
 
-    logger.debug("Defining tau interval")
+    logger.debug("Defining parameters (tau interval, error)")
     # Following recommendation of https://arxiv.org/pdf/1710.10321.pdf
     gam = .95
     eta = .85
     l2  = 3.50654818e-03 # eigsh(gl, k=1, which="SM", return_eigenvectors=False)[0] # 3.50654818e-03 1.46529700e-12
     lm  = 13162.001602973913 # eigsh(gl, k=1, return_eigenvectors=False)[0]
-    print(f"l2={l2}")
-    print(f"lm={lm}")
+    logger.debug(f"l2={l2}")
+    logger.debug(f"lm={lm}")
     tau_min = -np.log(gam) / np.sqrt(l2*lm)
     tau_max = -np.log(eta) / np.sqrt(l2*lm)
-    print(f"tau_min={tau_min}")
-    print(f"tau_max={tau_max}")
+    logger.debug(f"tau_min={tau_min}")
+    logger.debug(f"tau_max={tau_max}")
+    err = 10**-3
 
-    n_run = 0
     t_sp = 0.
     t_cb4 = []
     t_cb8 = []
-    while True:
-        n_run += 1
+    for i in range(40):
+        n_run = i + 1
         logger.debug(f"Iteration {n_run}")
         # Compute diffusion with Scipy's method
         tau = np.random.default_rng().uniform(low=tau_min,high=tau_max,size=(1,))
         t_start = time()
-        _ = sparse_expm_multiply(-tau[0]*gl, x)
+        _ = scipy_expm_multiply(-tau[0]*gl, x)
         t_stop = time()
         t_sp += t_stop - t_start
         print(f"t_sp={t_sp/n_run:.2E}")
@@ -1097,20 +478,18 @@ def time_ogbn():
         # Compute diffusion for our method, with 4 values of \tau
         tau = np.random.default_rng().uniform(low=tau_min,high=tau_max,size=(4,))
         t_start = time()
-        _ = expm_multiply(gl, x, tau, err=1e-3)
+        _ = expm_multiply(gl, x, tau, err=err)
         t_stop = time()
         t_cb4.append(t_stop - t_start)
-        print(t_cb4)
-        # print(f"t_cb4={t_cb4/n_run:.2E}")
+        print(f"t_cb4={t_cb4/n_run:.2E}")
 
         # Compute diffusion for our method, with 4 values of \tau
         tau = np.random.default_rng().uniform(low=tau_min,high=tau_max,size=(8,))
         t_start = time()
-        _ = expm_multiply(gl, x, tau, err=1e-3)
+        _ = expm_multiply(gl, x, tau, err=err)
         t_stop = time()
         t_cb8.append(t_stop - t_start)
-        print(t_cb8)
-        # print(f"t_cb8={t_cb4/n_run:.2E}")
+        print(f"t_cb8={t_cb4/n_run:.2E}")
 
         # Compute interpolation
         res_cb = linregress(
@@ -1123,7 +502,9 @@ def time_ogbn():
 ################################################################################
 
 if __name__=="__main__":
-    time_ogbn()
-    # plot_bunny()
-    # speed_analysis_standford_bunny()
-    # min_K_er()
+    # Figure 1 of the paper
+    minimal_K_against_tau()
+    # First claim related to speed
+    speed_standford_bunny()
+    # Second claim related to speed
+    speed_ogbn_arxiv()
