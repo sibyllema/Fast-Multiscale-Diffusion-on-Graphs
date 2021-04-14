@@ -7,5 +7,5 @@ The code is written in Python3, and uses the following libraries: NumPy, SciPy, 
 ## Execution
 To execute the experiments, write in a terminal:
 ```bash
-$ ./python3 main.py
+$ python3 main.py
 ```
