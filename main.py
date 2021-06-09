@@ -7,7 +7,7 @@ from ogb.nodeproppred import NodePropPredDataset
 
 # Plotting
 import matplotlib.pyplot as plt
-plt.rcParams.update({'font.size': 12})
+plt.rcParams.update({'font.size': 8})
 
 # Useful functions
 from scipy.special import ive # Bessel function
@@ -336,6 +336,7 @@ def speed_standford_bunny():
     tau_log_min = -3.
     tau_log_max = 1.
     tau_num_all = 2*np.arange(1,10)
+    err = 1e-5
 
     logger.debug("Allocating memory for results")
     time_sp = np.empty((len(tau_num_all),n_runs,), dtype=np.float64)
@@ -367,7 +368,7 @@ def speed_standford_bunny():
             # Time our method
             t_start = time()
             tau_list = [10**tau_log_min/2+10**tau_log_max/2] if tau_num==1 else np.linspace(10**tau_log_min, 10**tau_log_max, num=tau_num)
-            _ = expm_multiply(L, X, tau_list, err=1e-5)
+            _ = expm_multiply(L, X, tau_list, err=err)
             t_stop = time()
             time_cb[j,i] = t_stop - t_start
 
@@ -401,7 +402,7 @@ def speed_standford_bunny():
 
             # Time our method
             t_start = time()
-            _ = expm_multiply(L, X, tau_list, err=1e-5)
+            _ = expm_multiply(L, X, tau_list, err=err)
             t_stop = time()
             time_cb[j,i] = t_stop - t_start
 
@@ -498,13 +499,74 @@ def speed_ogbn_arxiv():
         print(f"t_cb = {res_cb.intercept:.2E} + n_scale*{res_cb.slope:.2E}")
 
 ################################################################################
+### 3d plot of diffusion on standford bunny ####################################
+################################################################################
+
+from mpl_toolkits.mplot3d import Axes3D
+def plot_bunny():
+    # Load data
+    L,pos = get_standford_bunny()
+    N,_   = pos.shape
+    lmax  = eigsh(L, k=1, return_eigenvectors=False)[0]
+
+    # Re-order 3d coordinates, for plotting later
+    pos[:,1],pos[:,2] = -pos[:,2],pos[:,1].copy()
+
+    # Create a (Dirac) signal
+    X = np.zeros((N,1), dtype=np.float64)
+    X[0] = 1.
+
+    # Prepare the figure and the expriment parameters
+    fig = plt.figure()
+    tau_all = np.array([.05,.1,.2,.5,1.,2.,5.,10.])
+    # tau_all = np.linspace(.001, 10, num=8)
+    err = 1e-2
+
+    # Diffuse the signal with our method
+    for i,tau in enumerate(tau_all):
+        # Prepare plot
+        ax = fig.add_subplot(240+i+1, projection='3d')
+        # # Get diffusion with scipy
+        # t_start = time()
+        Y_cb  = expm_multiply(L, X, tau, err=err)
+        # t_stop = time()
+        # t_cb = t_stop - t_start
+        # Get diffusion with our method
+        # t_start = time()
+        Y_sp = scipy_expm_multiply(-tau*L, X)
+        # t_stop = time()
+        # t_sp = t_stop - t_start
+        # Get order K
+        K = reverse_bound(get_bound_eta_specific, lmax/2, X, tau, err)
+        # Get error eps_K
+        eps_K = (np.linalg.norm(Y_sp - Y_cb)/np.linalg.norm(X))**2.
+        # Plot
+        ax.scatter(xs=pos[:,0], ys=pos[:,1], zs=pos[:,2],c=Y_cb)
+        ax.set_title(f"τ'={tau}, K={K}\nε={eps_K:.2E}")
+        # ax.set_title(f"s={100*(t_cb-t_sp)/t_sp:1.0f}%")
+        # Configure plot
+        ax.axis("off")
+        ax.set_xlim(np.amin(pos[:,0])*.9, np.amax(pos[:,0])*.9)
+        ax.set_ylim(np.amin(pos[:,1])*.9, np.amax(pos[:,1])*.9)
+        ax.set_zlim(np.amin(pos[:,2])*.9, np.amax(pos[:,2])*.9)
+
+    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+
+    # Save abd display plot
+    plt.savefig("fig/bunny.pdf",bbox_inches="tight")
+    plt.show()
+
+################################################################################
 ### Main #######################################################################
 ################################################################################
 
 if __name__=="__main__":
-    # Figure 1 of the paper
-    minimal_K_against_tau()
-    # First claim related to speed
-    speed_standford_bunny()
-    # Second claim related to speed
-    speed_ogbn_arxiv()
+    # # Figure 1 of the paper
+    # minimal_K_against_tau()
+    # # First claim related to speed
+    # speed_standford_bunny()
+    # # Second claim related to speed
+    # speed_ogbn_arxiv()
+
+    # Bunny plot
+    plot_bunny()
