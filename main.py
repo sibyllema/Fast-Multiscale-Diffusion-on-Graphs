@@ -1,4 +1,5 @@
 from core import np
+from utils import plt
 from time import time
 from tqdm import tqdm
 
@@ -12,7 +13,6 @@ from core import expm_multiply
 from ogb.nodeproppred import NodePropPredDataset
 
 # Plotting
-import matplotlib.pyplot as plt
 plt.rcParams.update({'font.size': 8})
 
 # Useful functions
@@ -34,45 +34,6 @@ logging.basicConfig(level=logging.INFO,  format='%(asctime)s - %(levelname)s - %
 logging.getLogger("matplotlib").setLevel(logging.WARNING) # Don't want matplotlib to print so much stuff
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG) # Max level of debug info. to display
-
-################################################################################
-### Utility functions ##########################################################
-################################################################################
-
-def plot_fancy_error_bar(x, y, ax=None, type="median_quartiles", **kwargs):
-    """ Plot data with errorbars and semi-transparent error region.
-
-    Arguments:
-    x -- list or ndarray, shape (nx,)
-        x-axis data
-    y -- ndarray, shape (nx,ny)
-        y-axis data. Usually represents ny attempts for each datum in x.
-    ax -- matplotlib Axis
-        Axis to plot the data on
-    type -- string.
-        Type of error. Either "median_quartiles" or "average_std".
-    kwargs -- dict
-        Extra options for matplotlib (such as color, label, etc).
-    """
-    if type=="median_quartiles":
-        y_center    = np.percentile(y, q=50, axis=-1)
-        y_up        = np.percentile(y, q=25, axis=-1)
-        y_down      = np.percentile(y, q=75, axis=-1)
-    elif type=="average_std":
-        y_center    = np.average(y, axis=-1)
-        y_std       = np.std(y, axis=-1)
-        y_up        = y_center + y_std
-        y_down      = y_center - y_std
-
-    fill_color = kwargs["color"] if "color" in kwargs else None
-
-    if ax is None:
-        plot_ = plt.errorbar(x, y_center, (y_center - y_down, y_up - y_center), **kwargs)
-        plt.fill_between(x, y_down, y_up, alpha=.3, color=fill_color)
-    else:
-        plot_ = ax.errorbar(x, y_center, (y_center - y_down, y_up - y_center), **kwargs)
-        ax.fill_between(x, y_down, y_up, alpha=.3, color=fill_color)
-    return plot_
 
 ################################################################################
 ### Error measurement ##########################################################
