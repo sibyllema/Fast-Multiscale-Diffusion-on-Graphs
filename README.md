@@ -1,5 +1,5 @@
-# spl2021-accelerating-diffusion-chebychev
-Standalone code of the experiments for the paper "Fast Multiscale Diffusion on Graphs" submitted at SPL2021.
+# Fast Multiscale Diffusion on Graphs
+Standalone code of the experiments for the paper "Fast Multiscale Diffusion on Graphs" accepted at ICASSP 2022.
 
 ## Requirements
 The code is written in Python3, and uses the following libraries: NumPy, SciPy, pyplot and ogb.
