@@ -9,6 +9,8 @@ from core import get_bound_bergamaschi_generic, get_bound_bergamaschi_specific
 from core import reverse_bound
 from core import expm_multiply
 
+# Import utils
+from utils import plot_fancy_error_bar
 # Data
 from ogb.nodeproppred import NodePropPredDataset
 
@@ -84,8 +86,8 @@ def get_er(k, N=200, p=.05, gamma=1.):
         yield sample_er(N, p, gamma)
 
 def get_standford_bunny():
-    L = load_sparse("data/standford_bunny_laplacian.npz")
-    X = np.load("data/standford_bunny_coords.npy")
+    L = load_sparse("data/bunny/standford_bunny_laplacian.npz")
+    X = np.load("data/bunny/standford_bunny_coords.npy")
     return L,X
 
 ################################################################################
