@@ -1,0 +1,2 @@
+AUTHORS: Sibylle Marcotte and Amélie Barbe
+CONTRIBUTORS: Rémi Gribonval, Titouan Vayer, Marc Sebban, Pierre Borgnat and Paulo Gonçalves
